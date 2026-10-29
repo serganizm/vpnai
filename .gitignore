@@ -35,3 +35,6 @@ vpn-report*.json
 ovpn-install-report.json
 ovpn-profiles/
 ovpn-downloads/
+
+# Release build output
+build/
