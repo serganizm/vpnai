@@ -65,7 +65,7 @@ def validate(data):
 
 def get_paramiko():
     try:import paramiko;return paramiko
-    except ImportError:raise UserError('Для реальных серверов установите SSH-компонент: запустите setup-ssh.command, setup-ssh.sh или setup-ssh.bat из папки app.')
+    except ImportError:raise UserError('Для реальных серверов установите SSH-компонент: запустите из папки app файл для своей ОС: setup-ssh-windows.bat (Windows), setup-ssh-macos.command (macOS) или setup-ssh-linux.sh (Linux). Перед установкой закройте приложение, после установки запустите его снова.')
 
 def fingerprint(key):return 'SHA256:'+base64.b64encode(hashlib.sha256(key.asbytes()).digest()).decode().rstrip('=')
 
