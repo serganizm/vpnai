@@ -22,8 +22,11 @@ with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as packag
         package.write(path,name)
 with zipfile.ZipFile(archive) as package:
     if package.testzip() is not None:raise SystemExit('Invalid ZIP')
-    expected={'app','readme.txt','macos.command','linux.sh','windows.bat'}
+    expected={'app','docs','readme.txt','macos.command','linux.sh','windows.bat'}
     if {pathlib.PurePosixPath(name).parts[1] for name in package.namelist()}!=expected:raise SystemExit('Unexpected distribution layout')
+    for name in package.namelist():
+        relative=pathlib.PurePosixPath(name).relative_to('VPNAI')
+        if relative.suffix.lower() in ('.md','.rst') and relative.parts[0]!='docs':raise SystemExit('Documentation outside docs: '+name)
     for name,digest in manifest.items():
         if hashlib.sha256(package.read('VPNAI/'+name)).hexdigest()!=digest:raise SystemExit('Packaged checksum mismatch: '+name)
     for path in (ROOT/'app/core/payload').rglob('*'):

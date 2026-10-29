@@ -1,6 +1,12 @@
 name: Publish VPNAI release
 
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag'
+        required: true
+        default: 'v0.1.1'
   push:
     tags:
       - 'v[0-9]*'
@@ -21,6 +27,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.tag || github.ref_name }}
       - name: Run application tests
         env:
           PYTHONDONTWRITEBYTECODE: '1'
@@ -31,13 +38,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           gh release create "$RELEASE_TAG" \
             --verify-tag \
             --draft \
             --prerelease \
             --title "VPNAI $RELEASE_TAG" \
-            --notes-file .github/RELEASE_NOTES.md \
+            --notes-file docs/RELEASE_NOTES.md \
             build/VPNAI.zip build/SHA256SUMS.txt
           gh release edit "$RELEASE_TAG" --draft=false

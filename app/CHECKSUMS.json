@@ -1,5 +1,4 @@
 {
-  "app/TEST_REPORT.md": "485790c05544d69dbaaef4ac8b0d488e49365f8a407bd0b89dc3a8b7296017d9",
   "app/app.py": "b9f25aac83d799f13f9f83f0aca7889b19a82b151c7ba04e443568f2e5a08246",
   "app/backend.py": "6eb22ef3fbbba429cad180b828f335f8b5207c30c0485bb2ac676812fd5cf161",
   "app/core/engine.py": "463399c223a54c58541cf537ca203fda5779e1ecf2c54b9f495f5acd196f97a9",
@@ -40,7 +39,6 @@
   "app/core/payload/ru/usr/local/sbin/ovpn-split-routes": "6599f382ef00a637988e1ea153afafaf1a62ff8747dae6904bf572e1cb3ccb4f",
   "app/core/payload/ru/usr/local/sbin/ovpn-tcp-network": "2c16fa64d5c15f59b02007b3b91a58eec37ca5635b7b31982fd2795f0928c298",
   "app/core/payload/ru/usr/local/sbin/ovpn-user": "c95c6c5f151c38a6289ec9d3b5daa6376b4195569ca22ec54d3000e464729a94",
-  "app/readme.md": "659bf95a985371fe1f4d28079a021eefd7b85dddbbfe38ab3a7ac079427f81e6",
   "app/requirements.txt": "77d7a48504039554279897cf4a86498d5d2b5c61c5262f7ce079d1fd8c8f1b18",
   "app/setup-ssh.bat": "abe4f189b433835cf4fd0e68af9325f8a28a2b5de11a85b33edc26fb74220a70",
   "app/setup-ssh.command": "9d508b384717c78df16f3db012a4d687124556a1e14f1d052b3308fc753e096d",
@@ -49,8 +47,13 @@
   "app/static/index.html": "853003c653e3c41966bb559a69374fd1a572a3e55e904cb92933301d944c2254",
   "app/static/style.css": "a266a5c16eb1573335f0eea7e0d9e4b5e87d15c94017bbc8da18be8fcf3847e3",
   "app/tests/test_app.py": "eea367ce795b670794e467f2e957ed5203d7b56f08b5f567884f48edb280fe45",
+  "docs/ARCHITECTURE.md": "bbf5c926f9f8f57cb3da9ca8858144473ad219660f94ab6d5e54a0c33ed8bf39",
+  "docs/RELEASE_NOTES.md": "151aeabe2fc76b007bc6686b7f874bffe3d073d30a4c6679aa4bad28ed03e726",
+  "docs/SETUP.md": "f2662fd88cca03dacbcac08353142bf50f47d47ca21cf85f9860acde2c104dff",
+  "docs/TEST_REPORT.md": "485790c05544d69dbaaef4ac8b0d488e49365f8a407bd0b89dc3a8b7296017d9",
+  "docs/readme.md": "ca75cc77a6d7880414d6b46872ff809e5038287abb879e50309be24c4992283c",
   "linux.sh": "8a9d326f190fbe856d7a0ae4867976d64baff25c9aa3366f51408183fc61c461",
   "macos.command": "576c6933a19931032ceac746322c8c81572f637892f358bdab9687894952289c",
-  "readme.txt": "5623bb152218d6b1b24bb053301179c9a28fcbd604602d5be5cbcc5dddc1270a",
+  "readme.txt": "3abfacc2ef61bd1d7318bb9ef5f8c31407355fc1c6e43baf7f27919ef9f25916",
   "windows.bat": "0a0b05deb5eb24e6c1a8f6a22bb1dcf9b62fa369f72f57e8e96a98c587853c06"
 }

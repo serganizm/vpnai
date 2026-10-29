@@ -100,17 +100,23 @@ IPList обновляется отдельно от ручных списков.
 
 ```text
 VPNAI/
-├── app/                         Все файлы приложения
+├── app/                         Код, интерфейс, шаблоны и тесты
 │   ├── app.py / backend.py      HTTP-сервер и SSH-операции
 │   ├── static/                  Интерфейс
 │   ├── core/                    Установочный движок и шаблоны
 │   ├── tests/                   Автоматические проверки
 │   ├── setup-ssh.*              Установка SSH-компонента
-│   ├── requirements.txt         SSH-зависимость
-│   └── readme.md                Эта инструкция
+│   └── requirements.txt         SSH-зависимость
+├── docs/                        Вся подробная документация
+│   ├── readme.md                Эта инструкция
+│   ├── SETUP.md                 Пошаговая настройка
+│   ├── ARCHITECTURE.md          Устройство приложения
+│   ├── TEST_REPORT.md           Отчёт о проверках
+│   └── RELEASE_NOTES.md         Изменения выпуска
 ├── windows.bat
 ├── linux.sh
-└── macos.command
+├── macos.command
+└── readme.txt                   Краткий запуск
 ```
 
 Тесты запускаются из папки VPNAI: `python3 -m unittest discover -s app/tests -v` (на Windows — `py -3 -m unittest discover -s app/tests -v`). Для демонстрации устанавливать SSH-зависимость не нужно.
