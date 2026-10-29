@@ -48,12 +48,12 @@
   "app/static/style.css": "a266a5c16eb1573335f0eea7e0d9e4b5e87d15c94017bbc8da18be8fcf3847e3",
   "app/tests/test_app.py": "eea367ce795b670794e467f2e957ed5203d7b56f08b5f567884f48edb280fe45",
   "docs/ARCHITECTURE.md": "bbf5c926f9f8f57cb3da9ca8858144473ad219660f94ab6d5e54a0c33ed8bf39",
-  "docs/RELEASE_NOTES.md": "9a8667d09c45c34661e69c1f6a37a840d7f6300664904cd74871dd54645b67f5",
-  "docs/SETUP.md": "b7f252a16b6b44c31e94db06f29fb6113ddc31851ba1195f44da81ddad85a0a4",
+  "docs/RELEASE_NOTES.md": "1f7298eb0a6da3f084df5b3229548ebb752cc12b762e40e415c226a59e8ac7f1",
+  "docs/SETUP.md": "9c24f6171881e3d18ba50919855be0079b1a62dbe8c9fc39b7734c5ea176829b",
   "docs/TEST_REPORT.md": "485790c05544d69dbaaef4ac8b0d488e49365f8a407bd0b89dc3a8b7296017d9",
-  "docs/readme.md": "e0d5b557e8637a6966c5343881bb3945bc923056443c37bc75d4a919830a9751",
+  "docs/readme.md": "4e6f6978eac44e2f1a32a2ab8887f09e78df92e55ea5ecaab7c096bd7f34a6a3",
   "linux.sh": "8a9d326f190fbe856d7a0ae4867976d64baff25c9aa3366f51408183fc61c461",
   "macos.command": "576c6933a19931032ceac746322c8c81572f637892f358bdab9687894952289c",
-  "readme.txt": "b41aeb82c1fadff6880fef47cb57c93eaca76aa572c52c082c7a8404150eddc5",
+  "readme.txt": "d55663ac8478d3ae33f64fb1535bcabf9f06921c7eb3165258ce347d4cc0f02e",
   "windows.bat": "0a0b05deb5eb24e6c1a8f6a22bb1dcf9b62fa369f72f57e8e96a98c587853c06"
 }

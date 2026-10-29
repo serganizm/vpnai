@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Build the portable application from the explicit, verified distribution manifest."""
-import hashlib,json,pathlib,zipfile
+import argparse,hashlib,json,pathlib,re,zipfile
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--version',required=True,help='Release tag, for example v0.1.3')
+version=parser.parse_args().version
+if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?',version):parser.error('Expected a version tag such as v0.1.3')
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 manifest_file=ROOT/'app/CHECKSUMS.json'
 manifest=json.loads(manifest_file.read_text())
@@ -14,7 +18,7 @@ for name,digest in manifest.items():
     files.append(path)
 files.append(manifest_file)
 output=ROOT/'build';output.mkdir(exist_ok=True)
-archive=output/'VPNAI.zip'
+archive=output/('VPNAI-'+version+'.zip')
 with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as package:
     for path in sorted(files):
         name='VPNAI/'+path.relative_to(ROOT).as_posix()
@@ -35,6 +39,6 @@ with zipfile.ZipFile(archive) as package:
         if not (package.getinfo('VPNAI/'+name).external_attr>>16)&0o111:raise SystemExit('Launcher is not executable: '+name)
     count=len(package.namelist())
 digest=hashlib.sha256(archive.read_bytes()).hexdigest()
-(output/'SHA256SUMS.txt').write_text(digest+'  VPNAI.zip\n')
-print('Verified portable ZIP:',count,'files;',archive.stat().st_size,'bytes')
+(output/'SHA256SUMS.txt').write_text(digest+'  '+archive.name+'\n')
+print('Verified portable ZIP:',archive.name,count,'files;',archive.stat().st_size,'bytes')
 print('SHA256:',digest)

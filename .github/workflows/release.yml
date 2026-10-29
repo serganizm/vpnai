@@ -6,7 +6,7 @@ on:
       tag:
         description: 'Existing release tag'
         required: true
-        default: 'v0.1.2'
+        default: 'v0.1.3'
   push:
     tags:
       - 'v[0-9]*'
@@ -33,7 +33,9 @@ jobs:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python3 -m unittest discover -s app/tests -v
       - name: Build and verify portable archive
-        run: python3 .github/scripts/build_release.py
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: python3 .github/scripts/build_release.py --version "$RELEASE_TAG"
       - name: Create draft with assets, then publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -46,5 +48,5 @@ jobs:
             --prerelease \
             --title "VPNAI $RELEASE_TAG" \
             --notes-file docs/RELEASE_NOTES.md \
-            build/VPNAI.zip build/SHA256SUMS.txt
+            "build/VPNAI-${RELEASE_TAG}.zip" build/SHA256SUMS.txt
           gh release edit "$RELEASE_TAG" --draft=false

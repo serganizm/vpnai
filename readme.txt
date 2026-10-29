@@ -2,7 +2,7 @@ VPNAI — локальный установщик OpenVPN
 
 Для запуска нужен Python 3.9 или новее: https://www.python.org/downloads/
 
-1. Полностью распакуйте VPNAI.zip.
+1. Полностью распакуйте VPNAI-vX.Y.Z.zip.
 2. Запустите файл для вашей системы:
    macOS:   macos.command (двойной щелчок).
    Linux:   bash linux.sh из папки VPNAI.
