@@ -1,0 +1,9 @@
+[Unit]
+Description=Check HTTPS certificate renewal every six hours
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=6h
+RandomizedDelaySec=600
+Persistent=true
+[Install]
+WantedBy=timers.target

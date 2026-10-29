@@ -1,0 +1,7 @@
+#!/bin/bash
+set -e
+rule() { local table="$1" chain="$2"; shift 2; iptables -t "$table" -C "$chain" "$@" 2>/dev/null || iptables -t "$table" -I "$chain" 1 "$@"; }
+ip route replace @@TCP_NET@@ via @@GRE_RU@@ dev gre-nl
+rule filter FORWARD -i gre-nl -s @@TCP_NET@@ -o @@NL_DEV@@ -j ACCEPT
+rule filter FORWARD -o gre-nl -d @@TCP_NET@@ -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+rule nat POSTROUTING -s @@TCP_NET@@ -o @@NL_DEV@@ -j MASQUERADE

@@ -1,0 +1,20 @@
+#!/bin/bash
+set -e
+sysctl -p /etc/sysctl.d/90-ovpn-routing.conf >/dev/null
+ip link show gre-nl >/dev/null 2>&1 || ip tunnel add gre-nl mode gre local @@NL_IP@@ remote @@RU_IP@@ ttl 64
+ip addr replace @@GRE_NL_ADDR@@ dev gre-nl
+ip link set gre-nl mtu 1360 up
+sysctl -w net.ipv4.conf.gre-nl.rp_filter=0 >/dev/null
+rule() { local table="$1" chain="$2"; shift 2; iptables -t "$table" -C "$chain" "$@" 2>/dev/null || iptables -t "$table" -I "$chain" 1 "$@"; }
+rule filter OUTPUT -d @@RU_IP@@ -p gre -m policy --dir out --pol none -j DROP
+rule filter INPUT -s @@RU_IP@@ -p gre -m policy --dir in --pol none -j DROP
+rule filter INPUT -s @@RU_IP@@ -p gre -m policy --dir in --pol ipsec -j ACCEPT
+rule filter INPUT -s @@RU_IP@@ -p udp -m multiport --dports 500,4500 -j ACCEPT
+rule filter INPUT -s @@RU_IP@@ -p esp -j ACCEPT
+rule filter INPUT -i gre-nl -p icmp -j ACCEPT
+rule mangle FORWARD -o gre-nl -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+rule mangle FORWARD -i gre-nl -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+ip route replace @@VPN_NET@@ via @@GRE_RU@@ dev gre-nl
+rule filter FORWARD -i gre-nl -s @@VPN_NET@@ -o @@NL_DEV@@ -j ACCEPT
+rule filter FORWARD -o gre-nl -d @@VPN_NET@@ -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+rule nat POSTROUTING -s @@VPN_NET@@ -o @@NL_DEV@@ -j MASQUERADE

@@ -1,0 +1,5 @@
+#!/usr/bin/python3
+import pathlib,sys
+# OpenVPN supplies the private per-connection configuration file as the final argument.
+source=pathlib.Path('/var/lib/ovpn-routing/split-push.conf').read_bytes()
+pathlib.Path(sys.argv[-1]).write_bytes(source)

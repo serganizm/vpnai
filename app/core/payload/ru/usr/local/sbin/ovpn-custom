@@ -1,0 +1,30 @@
+#!/usr/bin/python3
+import pathlib,sys,json,ipaddress,fcntl,subprocess,os
+os.umask(0o077)
+nl='--nl' in sys.argv
+if nl:sys.argv.remove('--nl')
+p=pathlib.Path('/etc/ovpn-routing/extra-nl.txt' if nl else '/etc/ovpn-routing/force-ru.txt')
+lock=open('/run/ovpn-custom.lock','w');fcntl.flock(lock,fcntl.LOCK_EX)
+def entries():return sorted(set(str(ipaddress.ip_network(l.split('#')[0].strip(),strict=False)) for l in p.read_text().splitlines() if l.split('#')[0].strip()))
+cmd=sys.argv[1] if len(sys.argv)>1 else 'list'
+if cmd=='list':print(json.dumps(entries()));sys.exit()
+if cmd not in ('add','remove') or len(sys.argv)!=3:sys.exit('Use: ovpn-custom list | add IP/CIDR | remove IP/CIDR')
+try:
+ n=ipaddress.ip_network(sys.argv[2],strict=False)
+ if n.version!=4 or not n.is_global or n.prefixlen<4:raise ValueError('Требуется публичный IPv4 или CIDR (без /0).')
+ if any(ipaddress.ip_address(a) in n for a in (('@@RU_IP@@','@@NL_IP@@') if nl else ('@@RU_IP@@',))):raise ValueError('Сеть включает служебный адрес VPS; выберите более узкий диапазон.')
+except ValueError as e:sys.exit(str(e))
+item=str(n);items=entries()
+if cmd=='add' and item in items:sys.exit('Этот адрес/диапазон уже есть в ручном списке.')
+if cmd=='remove' and item not in items:sys.exit('Такой записи нет в ручном списке.')
+old=p.read_text()
+if cmd=='add':new=old.rstrip()+'\n'+item+'\n'
+else:new='\n'.join(l for l in old.splitlines() if not l.split('#')[0].strip() or str(ipaddress.ip_network(l.split('#')[0].strip(),strict=False))!=item)+'\n'
+def write(text):
+ t=p.with_name(p.name+'.new');t.write_text(text);t.chmod(0o600);t.replace(p)
+write(new)
+r=subprocess.run(['/usr/local/sbin/ovpn-routing','restore'],capture_output=True,text=True)
+if r.returncode:
+ write(old);subprocess.run(['/usr/local/sbin/ovpn-routing','restore'],capture_output=True)
+ sys.exit('Не удалось применить; ручной файл восстановлен: '+r.stderr)
+print(item)

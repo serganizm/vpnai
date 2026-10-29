@@ -1,0 +1,38 @@
+#!/usr/bin/python3
+import pathlib,sys,json,os,time,secrets,hashlib,fcntl,grp,re,io,zipfile,base64
+os.umask(0o077)
+if os.geteuid()!=0:sys.exit('Run as root')
+root=pathlib.Path('/var/lib/ovpn-links');root.mkdir(mode=0o750,exist_ok=True)
+gid=grp.getgrnam('ovpn-links').gr_gid;os.chown(root,0,gid);root.chmod(0o750)
+cmd=sys.argv[1] if len(sys.argv)>1 else ''
+name=sys.argv[2] if len(sys.argv)>2 else ''
+if cmd in ('create','create-all'):
+ if cmd=='create' and not re.fullmatch('[A-Za-z0-9_-]{1,48}',name):sys.exit('Invalid user')
+ userlock=open('/run/ovpn-user.lock','a');fcntl.flock(userlock,fcntl.LOCK_SH)
+lock=open('/run/ovpn-links.lock','a');fcntl.flock(lock,fcntl.LOCK_EX)
+for p in root.glob('*.json'):
+ try:
+  d=json.loads(p.read_text())
+  if d['expires']<=time.time() or (cmd=='invalidate' and name in d.get('usernames',[d.get('username')])):p.unlink()
+ except (ValueError,KeyError):p.unlink()
+if cmd in ('cleanup','invalidate'):sys.exit()
+if cmd not in ('create','create-all'):sys.exit('Use: ovpn-link create USER | create-all | invalidate USER | cleanup')
+users=json.loads(pathlib.Path('/etc/openvpn/server/users.json').read_text())
+selected=sorted(n for n,v in users.items() if v.get('enabled') and not v.get('deleted')) if cmd=='create-all' else [name]
+if not selected:sys.exit('No active users')
+buffer=io.BytesIO()
+with zipfile.ZipFile(buffer,'w',zipfile.ZIP_DEFLATED) as z:
+ for n in selected:
+  if not re.fullmatch('[A-Za-z0-9_-]{1,48}',n):sys.exit('Invalid user')
+  u=users.get(n,{})
+  if not u.get('enabled') or u.get('deleted'):sys.exit('User inactive')
+  variants=('-UDP.ovpn','-TCP.ovpn') if all((pathlib.Path('/root/ovpn-profiles')/(n+x)).is_file() for x in ('-UDP.ovpn','-TCP.ovpn')) else ('.ovpn',)
+  for suffix in variants+('-credentials.txt',):
+   f=pathlib.Path('/root/ovpn-profiles')/(n+suffix)
+   if not f.is_file():sys.exit('Missing profile or credentials for '+n)
+   z.writestr(f.name,f.read_bytes())
+filename='IPSRU-all.zip' if cmd=='create-all' else 'IPSRU-'+name+'.zip'
+token=secrets.token_urlsafe(16);expires=int(time.time())+600
+p=root/(hashlib.sha256(token.encode()).hexdigest()+'.json')
+p.write_text(json.dumps({'usernames':selected,'expires':expires,'filename':filename,'archive':base64.b64encode(buffer.getvalue()).decode()}));os.chown(p,0,gid);p.chmod(0o640)
+print(json.dumps({'url':'https://@@RU_IP@@/d/'+token,'expires':expires,'filename':filename,'count':len(selected)}))

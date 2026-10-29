@@ -1,0 +1,11 @@
+[Unit]
+Description=Additional OpenVPN TCP routing
+Requires=ovpn-network.service
+After=ovpn-network.service
+Before=openvpn-server@ru-tcp.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ovpn-tcp-network
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target

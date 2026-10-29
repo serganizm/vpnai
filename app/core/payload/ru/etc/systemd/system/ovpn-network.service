@@ -1,0 +1,11 @@
+[Unit]
+Description=Isolated OpenVPN GRE and routing rules
+After=network-online.target docker.service
+Wants=network-online.target
+Before=openvpn-server@ru.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ovpn-network
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target

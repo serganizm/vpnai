@@ -1,0 +1,39 @@
+#!/bin/bash
+set -e
+sysctl -p /etc/sysctl.d/90-ovpn-routing.conf >/dev/null
+ip link show gre-nl >/dev/null 2>&1 || ip tunnel add gre-nl mode gre local @@RU_IP@@ remote @@NL_IP@@ ttl 64
+ip addr replace @@GRE_RU_ADDR@@ dev gre-nl
+ip link set gre-nl mtu 1360 up
+sysctl -w net.ipv4.conf.gre-nl.rp_filter=0 >/dev/null
+rule() { local table="$1" chain="$2"; shift 2; iptables -t "$table" -C "$chain" "$@" 2>/dev/null || iptables -t "$table" -I "$chain" 1 "$@"; }
+rule filter OUTPUT -d @@NL_IP@@ -p gre -m policy --dir out --pol none -j DROP
+rule filter INPUT -s @@NL_IP@@ -p gre -m policy --dir in --pol none -j DROP
+rule filter INPUT -s @@NL_IP@@ -p gre -m policy --dir in --pol ipsec -j ACCEPT
+rule filter INPUT -s @@NL_IP@@ -p udp -m multiport --dports 500,4500 -j ACCEPT
+rule filter INPUT -s @@NL_IP@@ -p esp -j ACCEPT
+rule filter INPUT -i gre-nl -p icmp -j ACCEPT
+rule mangle FORWARD -o gre-nl -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+rule mangle FORWARD -i gre-nl -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+ipset create ovpn_nl hash:net family inet maxelem 262144 -exist
+ipset create ovpn_force_ru hash:net family inet maxelem 262144 -exist
+/usr/local/sbin/ovpn-routing restore
+ip route replace unreachable default metric 32760 table 310
+ip route replace default via @@GRE_NL@@ dev gre-nl metric 10 table 310
+ip rule show | grep -q 'fwmark 0x310/0xfff lookup 310' || ip rule add pref 10310 fwmark 0x310/0xfff table 310
+iptables -t mangle -N OVPN_CLASSIFY 2>/dev/null || true
+iptables -t mangle -F OVPN_CLASSIFY
+iptables -t mangle -A OVPN_CLASSIFY -j CONNMARK --restore-mark --nfmask 0xfff --ctmask 0xfff
+iptables -t mangle -A OVPN_CLASSIFY -m mark ! --mark 0/0xfff -j RETURN
+iptables -t mangle -A OVPN_CLASSIFY -m set --match-set ovpn_force_ru dst -j MARK --set-xmark 0x311/0xfff
+iptables -t mangle -A OVPN_CLASSIFY -m mark --mark 0/0xfff -m set --match-set ovpn_nl dst -j MARK --set-xmark 0x310/0xfff
+iptables -t mangle -A OVPN_CLASSIFY -m mark --mark 0/0xfff -j MARK --set-xmark 0x311/0xfff
+iptables -t mangle -A OVPN_CLASSIFY -j CONNMARK --save-mark --nfmask 0xfff --ctmask 0xfff
+rule mangle PREROUTING -i tun-ovpn -s @@VPN_NET@@ -j OVPN_CLASSIFY
+rule filter INPUT -p udp --dport @@OVPN_PORT@@ -j ACCEPT
+rule filter FORWARD -i tun-ovpn -s @@VPN_NET@@ -o @@RU_DEV@@ -j ACCEPT
+rule filter FORWARD -i tun-ovpn -s @@VPN_NET@@ -o gre-nl -j ACCEPT
+rule filter FORWARD -o tun-ovpn -d @@VPN_NET@@ -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+# Insert AFTER the broad allow rules so the guard is evaluated first.
+rule filter FORWARD -i tun-ovpn -m mark --mark 0x310/0xfff ! -o gre-nl -j REJECT
+rule nat POSTROUTING -s @@VPN_NET@@ -o @@RU_DEV@@ -j MASQUERADE
+ip6tables -C FORWARD -i tun-ovpn -j REJECT 2>/dev/null || ip6tables -I FORWARD 1 -i tun-ovpn -j REJECT

@@ -1,0 +1,6 @@
+[Unit]
+Description=Update validated OpenVPN CIDR sets
+After=network-online.target ovpn-network.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ovpn-routing update

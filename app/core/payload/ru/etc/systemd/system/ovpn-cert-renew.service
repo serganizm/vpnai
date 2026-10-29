@@ -1,0 +1,6 @@
+[Unit]
+Description=Renew short-lived IP HTTPS certificate
+After=network-online.target nginx.service
+[Service]
+Type=oneshot
+ExecStart=/opt/ovpn-certbot/bin/certbot renew --quiet

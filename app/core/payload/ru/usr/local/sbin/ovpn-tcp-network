@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+rule() { local table="$1" chain="$2"; shift 2; iptables -t "$table" -C "$chain" "$@" 2>/dev/null || iptables -t "$table" -I "$chain" 1 "$@"; }
+rule filter INPUT -p tcp --dport @@OVPN_PORT@@ -j ACCEPT
+rule mangle PREROUTING -i tun-ovpn-tcp -s @@TCP_NET@@ -j OVPN_CLASSIFY
+rule filter FORWARD -i tun-ovpn-tcp -s @@TCP_NET@@ -o @@RU_DEV@@ -j ACCEPT
+rule filter FORWARD -i tun-ovpn-tcp -s @@TCP_NET@@ -o gre-nl -j ACCEPT
+rule filter FORWARD -o tun-ovpn-tcp -d @@TCP_NET@@ -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+rule filter FORWARD -i tun-ovpn-tcp -m mark --mark 0x310/0xfff ! -o gre-nl -j REJECT
+rule nat POSTROUTING -s @@TCP_NET@@ -o @@RU_DEV@@ -j MASQUERADE
+ip6tables -C FORWARD -i tun-ovpn-tcp -j REJECT 2>/dev/null || ip6tables -I FORWARD 1 -i tun-ovpn-tcp -j REJECT

@@ -1,0 +1,42 @@
+#!/usr/bin/python3
+import pathlib,json,urllib.request,ipaddress,subprocess,sys,datetime,fcntl
+base=pathlib.Path('/var/lib/ovpn-routing');base.mkdir(parents=True,exist_ok=True)
+lock=open('/run/ovpn-routing.lock','w');fcntl.flock(lock,fcntl.LOCK_EX)
+cfg=pathlib.Path('/etc/ovpn-routing');cmd=sys.argv[1] if len(sys.argv)>1 else 'status'
+def nets(items):
+ out=set()
+ for s in items:
+  n=ipaddress.ip_network(s,strict=False)
+  if n.version!=4 or n.prefixlen<4 or not n.is_global:raise ValueError('Invalid or unsafe CIDR: '+str(n))
+  out.add(str(n))
+ return sorted(out)
+def lines(p):return [s.split('#')[0].strip() for s in p.read_text().splitlines() if s.split('#')[0].strip()]
+def loadset(name,items):
+ tmp=name+'_new';data=f'create {tmp} hash:net family inet maxelem 262144 -exist\nflush {tmp}\n'
+ data+=''.join(f'add {tmp} {x}\n' for x in items)
+ data+=f'create {name} hash:net family inet maxelem 262144 -exist\nswap {tmp} {name}\ndestroy {tmp}\n'
+ subprocess.run(['ipset','restore'],input=data,text=True,check=True)
+if cmd=='status':
+ print((base/'status.json').read_text() if (base/'status.json').exists() else 'No list installed');sys.exit()
+if cmd=='update':
+ req=urllib.request.Request((cfg/'source.url').read_text().strip(),headers={'User-Agent':'ovpn-routing/1'})
+ with urllib.request.urlopen(req,timeout=60) as r:raw=r.read(16*1024*1024+1)
+ if len(raw)>16*1024*1024:raise ValueError('Response too large')
+ doc=json.loads(raw)
+ if not isinstance(doc,dict) or not all(isinstance(v,list) for v in doc.values()):raise ValueError('Unexpected JSON')
+ source=nets([s for v in doc.values() for s in v if ipaddress.ip_network(s,strict=False).is_global])
+ if len(source)<10:raise ValueError('Empty or implausibly small list')
+ old=json.loads((base/'source.json').read_text()) if (base/'source.json').exists() else None
+ if old and not 0.5<=len(source)/len(old)<=2:raise ValueError('Unexpected size change; retaining old list')
+ if old:(base/'source.previous.json').write_text(json.dumps(old))
+else:
+ source=json.loads((base/'source.json').read_text())
+extra=nets(lines(cfg/'extra-nl.txt'))
+forced=['10.0.0.0/8','172.16.0.0/12','192.168.0.0/16','127.0.0.0/8','169.254.0.0/16','@@RU_IP@@/32','@@NL_IP@@/32']+nets(lines(cfg/'force-ru.txt'))
+loadset('ovpn_force_ru',forced);loadset('ovpn_nl',sorted(set(source+extra)))
+if cmd=='update':
+ p=base/'source.tmp';p.write_text(json.dumps(source));p.replace(base/'source.json')
+ status={'updated_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'source_cidr_count':len(source),'portals':len(doc),'extra_nl':len(extra)}
+ (base/'status.json').write_text(json.dumps(status,indent=2));print(json.dumps(status))
+
+subprocess.run(["/usr/local/sbin/ovpn-split-routes"],check=True,stdout=subprocess.DEVNULL)

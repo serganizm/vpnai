@@ -1,0 +1,37 @@
+# System/editor files
+.DS_Store
+._*
+__MACOSX/
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+
+# Python runtime
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local data, credentials and generated exports
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*-credentials.txt
+*.ovpn
+*.zip
+*.tar.gz
+*.log
+vpn-report*.json
+ovpn-install-report.json
+ovpn-profiles/
+ovpn-downloads/

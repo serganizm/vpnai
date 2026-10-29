@@ -1,0 +1,15 @@
+[Unit]
+Description=Delete expired OpenVPN profile snapshots
+After=local-fs.target
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/libexec/ovpn-link-reaper.py
+Restart=always
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ovpn-links
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,6 @@
+[Unit]
+Description=Refresh OpenVPN certificate revocation list
+ConditionPathExists=/etc/openvpn/server/pki/private/ca.key
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flock /run/ovpn-user.lock /usr/bin/env EASYRSA_PKI=/etc/openvpn/server/pki EASYRSA_BATCH=1 /usr/share/easy-rsa/easyrsa gen-crl

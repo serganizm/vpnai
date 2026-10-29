@@ -1,0 +1,23 @@
+#!/usr/bin/python3
+"""Build an exact, collapsed IPv4 route union. Never add a default route."""
+import pathlib,ipaddress,json,fcntl,os
+os.umask(0o077)
+cfg=pathlib.Path('/etc/ovpn-routing');base=pathlib.Path('/var/lib/ovpn-routing')
+with open('/run/ovpn-split-routes.lock','w') as lock:
+ fcntl.flock(lock,fcntl.LOCK_EX)
+ entries=list(json.loads((base/'source.json').read_text()))
+ for name in ('force-ru.txt','extra-nl.txt'):
+  entries += [s.split('#')[0].strip() for s in (cfg/name).read_text().splitlines() if s.split('#')[0].strip()]
+ nets=[]
+ endpoint=ipaddress.ip_network('@@RU_IP@@/32')
+ for entry in entries:
+  n=ipaddress.ip_network(entry,strict=False)
+  if n.version!=4 or not n.is_global or n.prefixlen<4:raise ValueError('Non-public IPv4 CIDR')
+  # Keep the transport connection to the VPN server outside its own tunnel.
+  nets.extend(n.address_exclude(endpoint) if endpoint.subnet_of(n) else [n])
+ nets=list(ipaddress.collapse_addresses(nets))
+ text=''.join('push "route %s %s"\n'%(n.network_address,n.netmask) for n in nets)
+ if not nets or len(nets)>20000:raise ValueError('Implausible route count')
+ target=base/'split-push.conf';tmp=target.with_suffix('.tmp');tmp.write_text(text);tmp.chmod(0o600);tmp.replace(target)
+ target=base/'split-status.json';tmp=target.with_suffix('.tmp');tmp.write_text(json.dumps({'ipv4_routes':len(nets),'bytes':len(text),'default_route':False}));tmp.replace(target)
+ print('Split routes:',len(nets))
