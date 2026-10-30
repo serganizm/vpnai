@@ -1,0 +1,22 @@
+[Unit]
+Description=Restricted ACME relay over protected GRE
+After=network-online.target ovpn-network.service strongswan.service
+Wants=ovpn-network.service strongswan.service
+[Service]
+Type=simple
+User=nobody
+Group=nogroup
+ExecStart=/usr/bin/python3 /usr/local/sbin/ovpn-acme-proxy.py
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+TasksMax=40
+MemoryMax=96M
+UMask=0077
+[Install]
+WantedBy=multi-user.target

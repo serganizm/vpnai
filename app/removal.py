@@ -12,7 +12,7 @@ def allowed(name):
  return name in ('/root/menu.sh','/root/ovpn.sh','/root/ovpn-install-report.json','/etc/sysctl.d/90-ovpn-routing.conf','/etc/swanctl/conf.d/ovpn-gre.conf') or name.startswith(('/var/lib/ovpn-installer/','/etc/openvpn/server/','/etc/ovpn-routing/','/var/lib/ovpn-routing/','/var/lib/ovpn-links/','/root/ovpn-profiles/','/root/ovpn-downloads/','/usr/local/sbin/ovpn-','/usr/local/libexec/ovpn-','/etc/systemd/system/ovpn-','/etc/systemd/system/openvpn-server@ru','/etc/nginx/conf.d/ovpn-','/etc/nginx/sites-available/ovpn-','/etc/nginx/sites-enabled/ovpn-','/etc/letsencrypt/renewal-hooks/deploy/ovpn-'))
 def paths():
  result=[]
- if role=='ru':result=[P(x) for x in ['/etc/openvpn/server/pki','/etc/openvpn/server/users.json','/etc/openvpn/server/tls-crypt.key','/etc/ovpn-routing','/var/lib/ovpn-routing','/root/ovpn-profiles','/root/ovpn-downloads','/var/lib/ovpn-links','/root/ovpn-install-report.json']]
+ if role=='ru':result=[P(x) for x in ['/etc/openvpn/server/pki','/etc/openvpn/server/users.json','/etc/openvpn/server/tls-crypt.key','/etc/ovpn-routing','/var/lib/ovpn-routing','/root/ovpn-profiles','/root/ovpn-downloads','/var/lib/ovpn-links','/var/lib/ovpn-cert','/root/ovpn-install-report.json']]
  return result+[state]
 def validate():
  if role not in ('ru','nl'):fail('CLEAN_ROLE')

@@ -77,7 +77,7 @@ network=p.read_text() if p.exists() else ''
 print(json.dumps({'profiles':profiles,'list_classifier':'--match-set ovpn_nl' in network,'split_tools':all(pathlib.Path(p).is_file() for p in ('/usr/local/sbin/ovpn-split-routes','/usr/local/libexec/ovpn-split-connect'))}))
 """
 
-def installed_modes(ep,previous):
+def installed_modes(ep,previous,allow_incomplete=False):
     observed=json.loads(ep.python(INSPECT_MODES));profiles=observed['profiles'];saved=previous['config']
     complete=len(profiles)==2 and all(isinstance(p,dict) for p in profiles)
     routing='unknown';auth='unknown'
@@ -88,7 +88,11 @@ def installed_modes(ep,previous):
             elif saved.get('routing_mode')=='full_nl':routing='full_nl'
         if all(p['password'] for p in profiles):auth='password'
         elif all(not p['password'] for p in profiles):auth='certificate'
-    return {'routing':routing,'auth':auth,'state_version':previous.get('version'),'legacy':previous.get('version',1)<2,'split_tools':observed['split_tools']}
+    source='profiles'
+    if allow_incomplete and previous.get('version')==2 and previous.get('complete') is False and profiles==[None,None]:
+        routing=saved.get('routing_mode');auth=saved.get('auth_mode');source='saved-incomplete'
+        if routing not in ('split','full_mixed','full_nl') or auth not in ('password','certificate'):routing=auth='unknown'
+    return {'source':source,'routing':routing,'auth':auth,'state_version':previous.get('version'),'legacy':previous.get('version',1)<2,'split_tools':observed['split_tools']}
 
 def get_paramiko():
     try:import paramiko;return paramiko
@@ -346,10 +350,11 @@ def real_run(job):
         detected=None
         if previous and s['action'] in ('check','verify','resume'):
             job.event('Режим сервера',9,'Чтение фактических настроек OpenVPN: выбранный в форме режим не применяется при проверке.')
-            detected=installed_modes(ru,previous)
+            detected=installed_modes(ru,previous,allow_incomplete=s['action']=='resume')
             job.report['installed']=detected;job.report['requested_routing']=s['routing'];job.report['requested_auth']=s['auth']
             job.report['routing']=detected['routing'];job.report['auth']=detected['auth'];job.report['lists_from_server']=True
             warnings=[]
+            if detected.get('source')=='saved-incomplete':warnings.append('Восстановление незавершённой установки использует сохранённые режимы: профили были убраны автоматическим откатом.')
             if detected['legacy']:warnings.append('Обнаружена старая установка; проверка учитывает её формат без изменения серверов.')
             if detected['routing']!=s['routing']:warnings.append('Фактическая маршрутизация: '+{'full_mixed':'весь IPv4 через VPN с выбором RU/NL','full_nl':'весь IPv4 через зарубежный сервер','split':'раздельные маршруты','unknown':'не удалось однозначно определить'}[detected['routing']]+'. Выбор в форме при проверке её не меняет.')
             if detected['auth']!=s['auth']:warnings.append('Авторизация в отчёте взята из действующих настроек сервера.')
@@ -387,6 +392,7 @@ def real_run(job):
             except UserError:raise UserError('Проверки VPN пройдены, но получить архив существующих профилей не удалось. Проверьте /root/ovpn-profiles/ на российском сервере.') from None
             job.expires=time.time()+600;return
         for ep in endpoints:job.checkpoint();engine.preflight(c,ep,inv[ep.role],bool(previous))
+        c['https_relay']=True
         state=previous or {'version':2,'config':c,'psk':secrets.token_hex(32),'complete':False}
         state['version']=2;state['complete']=False;state['config']=c
         ru.write('/var/lib/ovpn-installer/state.json',json.dumps(state));mutated=True
@@ -407,8 +413,11 @@ def real_run(job):
         engine.initialize_ru(c,ru)
         for ep in (nl,ru):
             job.checkpoint();ep.shell('set -e\nsystemctl daemon-reload\nsystemctl enable --now ovpn-network ovpn-tcp-network strongswan\nsystemctl restart strongswan\nswanctl --load-all\n')
-        job.checkpoint();job.event('HTTPS',60,'Выпуск сертификата для временных ссылок. На российском сервере нужны свободные TCP 80 и 443.')
-        engine.setup_https(c,ru)
+        job.checkpoint();job.event('HTTPS',60,'Проверка HTTPS-сертификата; выпуск и продление через защищённый канал NL. HTTP-проверка доступна на RU TCP 80.')
+        job.report['https']=engine.setup_https(c,ru,nl)
+        if job.report['https'].get('renewal',{}).get('available') is False:
+            warning='Рабочий сертификат сохранён, но Let’s Encrypt сейчас недоступен. Автопродление повторит проверку каждый час; проверьте журнал ovpn-cert-renew.'
+            job.report.setdefault('warnings',[]).append(warning);job.event('Предупреждение HTTPS',65,warning)
         job.checkpoint();job.event('Запуск VPN',75,'Защищённый туннель и OpenVPN UDP/TCP.')
         engine.activate(c,ru,nl)
         # Apply comment and regenerate all profiles according to the selected auth mode.

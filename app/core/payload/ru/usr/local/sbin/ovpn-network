@@ -12,6 +12,8 @@ rule filter INPUT -s @@NL_IP@@ -p gre -m policy --dir in --pol ipsec -j ACCEPT
 rule filter INPUT -s @@NL_IP@@ -p udp -m multiport --dports 500,4500 -j ACCEPT
 rule filter INPUT -s @@NL_IP@@ -p esp -j ACCEPT
 rule filter INPUT -i gre-nl -p icmp -j ACCEPT
+rule filter OUTPUT -o gre-nl -d @@GRE_NL@@ -p tcp --dport 18765 -j ACCEPT
+rule filter INPUT -i gre-nl -s @@GRE_NL@@ -p tcp --sport 18765 -m conntrack --ctstate ESTABLISHED -j ACCEPT
 rule mangle FORWARD -o gre-nl -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 rule mangle FORWARD -i gre-nl -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 ipset create ovpn_nl hash:net family inet maxelem 262144 -exist

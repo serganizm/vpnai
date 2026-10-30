@@ -167,6 +167,7 @@ def preflight(c,ep,inv,resume):
                 if reuse_nginx is None:reuse_nginx=json.loads(ep.python(NGINX_REUSE_PROBE,{k:c[k] for k in ('ru_ip','nl_ip')})) is True
                 if reuse_nginx:continue
             if ep.role=='ru' and ((proto.startswith('tcp') and n in (80,443,8765,c['ovpn_port'])) or (proto.startswith('udp') and n==c['ovpn_port'])):raise InstallError('RU: занят нужный порт '+str(n))
+            if ep.role=='nl' and proto.startswith('tcp') and n==18765:raise InstallError('NL: занят служебный ACME-порт 18765')
             if proto.startswith('udp') and n in (500,4500):raise InstallError(ep.role+': IKE-порты заняты')
     # Save baseline once; no secrets in this inventory.
     ep.write('/var/lib/ovpn-installer/baseline.json',json.dumps(inv),preserve=True)
@@ -218,7 +219,7 @@ def deploy(c,ep,psk):
         executable=text.startswith('#!')
         mode=0o700 if executable else 0o600
         if '/systemd/' in path or '/nginx/' in path:mode=0o644
-        if path.endswith('ovpn-link-server.py'):mode=0o755
+        if path.endswith(('ovpn-link-server.py','ovpn-acme-proxy.py')):mode=0o755
         ep.write(path,text,mode)
     ep.write('/etc/swanctl/conf.d/ovpn-gre.conf',swan(c,ep.role,psk))
     ep.write('/usr/local/sbin/ovpn-install-rollback',ROLLBACK,0o700)
@@ -242,8 +243,8 @@ if role not in ('ru','nl'):fail('CLEAN_ROLE')
 if any(not shutil.which(name) for name in ('systemctl','ip','iptables','swanctl','sysctl')):fail('CLEAN_TOOLS')
 for info in owned.values():
  if info.get('backup') and not P(info['backup']).is_file():fail('CLEAN_BACKUP')
-units=['ovpn-tcp-network','ovpn-network']
-if role=='ru':units=['openvpn-server@ru','openvpn-server@ru-tcp','ovpn-list-update.timer','ovpn-crl-refresh.timer','ovpn-links','ovpn-links-cleanup','ovpn-cert-renew.timer']+units
+units=['ovpn-acme-proxy','ovpn-tcp-network','ovpn-network'] if role=='nl' else ['ovpn-tcp-network','ovpn-network']
+if role=='ru':units=['openvpn-server@ru','openvpn-server@ru-tcp','ovpn-list-update.timer','ovpn-crl-refresh.timer','ovpn-links','ovpn-links-cleanup','ovpn-cert-renew.timer','ovpn-cert-renew']+units
 for unit in units:call('systemctl','disable','--now',unit)
 call('swanctl','--terminate','--ike','ovpn-gre')
 p=P('/usr/local/sbin/ovpn-network')
@@ -318,7 +319,8 @@ python3 -m py_compile /usr/local/libexec/ovpn-menu.py /usr/local/sbin/ovpn-user 
 ovpn-routing update
 ''')
 
-def setup_https(c,ru):
+def setup_https(c,ru,nl):
+    nl.shell('set -e\nsystemctl enable --now ovpn-acme-proxy.service\n')
     # Repair public ACME traversal even when resuming an installation created with umask 077.
     ru.shell('set -e\ninstall -d -m 755 /var/www/ovpn-acme /var/www/ovpn-acme/.well-known /var/www/ovpn-acme/.well-known/acme-challenge\n')
     # First serve only ACME on port 80. SSL server is installed only after cert issuance.
@@ -331,11 +333,13 @@ def setup_https(c,ru):
 }
 '''%c['ru_ip']
     ru.write('/etc/nginx/sites-available/ovpn-links',initial,0o644)
-    ru.shell('set -e\nln -sf /etc/nginx/sites-available/ovpn-links /etc/nginx/sites-enabled/ovpn-links\nnginx -t\nsystemctl enable --now nginx\nsystemctl reload nginx\npython3 -m venv /opt/ovpn-certbot\n/opt/ovpn-certbot/bin/pip install "certbot==5.8.0"\n')
-    ru.shell('set -e\n/opt/ovpn-certbot/bin/certbot certonly --non-interactive --agree-tos --register-unsafely-without-email --preferred-profile shortlived --webroot -w /var/www/ovpn-acme --ip-address '+shlex.quote(c['ru_ip'])+' --cert-name ovpn-links --keep-until-expiring\n')
+    ru.shell('set -e\nln -sf /etc/nginx/sites-available/ovpn-links /etc/nginx/sites-enabled/ovpn-links\nnginx -t\nsystemctl enable --now nginx\nsystemctl reload nginx\nif ! /opt/ovpn-certbot/bin/certbot --version 2>/dev/null | grep -qx "certbot 5.8.0"; then\n python3 -m venv /opt/ovpn-certbot\n /opt/ovpn-certbot/bin/pip install "certbot==5.8.0"\nfi\n')
+    certificate=json.loads(ru.shell('python3 /usr/local/sbin/ovpn-cert-manage.py ensure',quiet=True) or '{}')
     text=(ROOT/'payload/ru/etc/nginx/sites-available/ovpn-links').read_text()
     ru.write('/etc/nginx/sites-available/ovpn-links',render(text,c,'ru'),0o644)
     ru.shell('set -e\nnginx -t\nsystemctl reload nginx\n')
+    renewal=json.loads(ru.shell('python3 /usr/local/sbin/ovpn-cert-manage.py probe',quiet=True) or '{}')
+    return {'certificate':certificate,'renewal':renewal}
 
 def ensure_ipsec(ru):
     # trap policy can establish CHILD_SA before the explicit initiate command.
@@ -370,6 +374,10 @@ DIAGNOSTICS={
  'CLEAN_PATH':'обнаружена неожиданная ссылка или небезопасный путь; удаление остановлено',
  'CLEAN_BACKUP':'резервная копия отсутствует, повреждена или недоступна',
  'CLEAN_TOOLS':'отсутствует обязательная системная утилита для удаления',
+ 'HTTPS_NETWORK':'Let’s Encrypt недоступен через NL и напрямую; проверьте туннель и исходящий HTTPS',
+ 'HTTPS_ISSUE':'не удалось выпустить или обновить HTTPS-сертификат; смотрите журнал Certbot на RU',
+ 'HTTPS_RATE':'Let’s Encrypt ограничил число запросов; текущий сертификат сохранён, дождитесь разрешённого срока',
+ 'HTTPS_CHALLENGE':'Let’s Encrypt не подтвердил IP; проверьте доступность HTTP-проверки на RU TCP 80',
  'CLEAN_ROLLBACK':'не удалось завершить откат сетевых настроек; сохранены данные для повторного удаления',
  'NAMESPACE_BUSY':'временная тестовая сеть или интерфейс уже существуют; чужие объекты не удалялись',
  'PROBE_ADDRESS_BUSY':'адрес теста используется клиентом; тест остановлен без отключения клиента',
@@ -388,7 +396,7 @@ def diagnostic_message(output):
         if not line.startswith('VPNAI_DIAG:'):continue
         value=line[len('VPNAI_DIAG:'):]
         if value in DIAGNOSTICS:return DIAGNOSTICS[value]
-        if value.startswith('SERVICE:') and value[8:] in VERIFY_UNITS:return 'неактивна обязательная служба '+value[8:]
+        if value.startswith('SERVICE:') and value[8:] in VERIFY_UNITS+['ovpn-acme-proxy']:return 'неактивна обязательная служба '+value[8:]
     return ''
 
 def verify(c,ru,nl,write_report=True):
@@ -401,7 +409,7 @@ def verify(c,ru,nl,write_report=True):
             detail=str(error) if isinstance(error,InstallError) or type(error).__name__=='UserError' else type(error).__name__
             raise InstallError('Проверка «'+name+'», '+('российский' if ep.role=='ru' else 'зарубежный')+' сервер: '+detail) from None
     for ep in [ru,nl]:
-        units=VERIFY_UNITS if ep.role=='ru' else VERIFY_UNITS[:3]
+        units=VERIFY_UNITS if ep.role=='ru' else VERIFY_UNITS[:3]+(['ovpn-acme-proxy'] if c.get('https_relay') else [])
         script='set -e\nfor unit in '+' '.join(units)+'; do\n if ! systemctl is-active --quiet "$unit"; then printf "VPNAI_DIAG:SERVICE:%s\\n" "$unit"; exit 1; fi\ndone\n'
         step('Службы',ep,lambda ep=ep,script=script:ep.shell(script,quiet=True))
         step('Состояние IPsec',ep,lambda ep=ep:ep.shell('swanctl --list-sas',quiet=True))

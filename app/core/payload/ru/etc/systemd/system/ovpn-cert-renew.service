@@ -1,6 +1,9 @@
 [Unit]
-Description=Renew short-lived IP HTTPS certificate
-After=network-online.target nginx.service
+Description=Renew IP HTTPS certificate through protected NL relay
+After=network-online.target nginx.service ovpn-network.service strongswan.service
+Wants=network-online.target
 [Service]
 Type=oneshot
-ExecStart=/opt/ovpn-certbot/bin/certbot renew --quiet
+ExecStart=/usr/bin/python3 /usr/local/sbin/ovpn-cert-manage.py renew
+TimeoutStartSec=12min
+UMask=0077
