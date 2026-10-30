@@ -97,3 +97,5 @@ async function copyCommand(role,fallback){
  try{await navigator.clipboard.writeText($(role+(fallback?'FallbackCommand':'CopyCommand')).textContent);$(role+(fallback?'FallbackCopy':'CopyButton')).textContent='Скопировано ✓';}
  catch(e){message('Не удалось записать в буфер. Выделите команду и скопируйте вручную.');}
 }
+
+$('exitApp').onclick=async()=>{try{const answer=await api('/api/exit',{});clearTimeout(pollTimer);document.querySelectorAll('button,input,select,textarea').forEach(el=>el.disabled=true);message(answer.message);}catch(e){message(e.message);}};

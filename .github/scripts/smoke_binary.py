@@ -11,7 +11,8 @@ with tempfile.TemporaryDirectory(prefix='vpnai-standalone-') as temp:
     # The standalone executable has no app directory or .venv next to it.
     path=pathlib.Path(temp)/exe.name;shutil.copy2(exe,path)
     if __import__('os').name!='nt':path.chmod(0o755)
-    check=subprocess.run([str(path),'--self-test'],cwd=temp,capture_output=True,text=True,encoding='utf-8',timeout=90,check=True)
+    check=subprocess.run([str(path),'--self-test'],cwd=temp,capture_output=True,text=True,encoding='utf-8',timeout=90,check=False)
+    if check.returncode:raise RuntimeError('Offline self-test failed: '+check.stdout+'\n'+check.stderr)
     result=json.loads(check.stdout.strip());assert result['standalone'] and result['ssh_available'] and result['native_crypto'] and result['core_files_verified']>20,result
     print('OFFLINE SELF-TEST:',json.dumps(result),flush=True)
     process=subprocess.Popen([str(path),'--no-browser'],cwd=temp,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding='utf-8',errors='replace')
@@ -44,8 +45,13 @@ with tempfile.TemporaryDirectory(prefix='vpnai-standalone-') as temp:
             time.sleep(.25)
         assert job['status']=='success',job
         archive=request('/api/jobs/'+job_id+'/download');assert archive[:2]==b'PK'
-        print('PASS: standalone HTTP UI, bundled SSH, embedded docs and offline demo ZIP',flush=True)
+        request('/api/exit',{})
+        process.wait(timeout=30)
+        assert process.returncode==0,process.returncode
+        print('PASS: standalone HTTP UI, bundled SSH, embedded docs, offline demo ZIP and clean exit',flush=True)
     finally:
-        process.terminate()
-        try:process.wait(timeout=15)
-        except subprocess.TimeoutExpired:process.kill();process.wait(timeout=10)
+        if process.poll() is None:
+            if __import__('os').name=='nt':subprocess.run(['taskkill','/PID',str(process.pid),'/T','/F'],capture_output=True)
+            else:process.terminate()
+            try:process.wait(timeout=15)
+            except subprocess.TimeoutExpired:process.kill();process.wait(timeout=10)

@@ -10,12 +10,13 @@ def local_platform():
     return 'windows' if sys.platform=='win32' else 'macos' if sys.platform=='darwin' else 'linux'
 
 class Application:
-    def __init__(self,trust_path=None):self.token=secrets.token_urlsafe(32);self.jobs={};self.lock=threading.RLock();self.trust=TrustStore(trust_path)
+    def __init__(self,trust_path=None):self.token=secrets.token_urlsafe(32);self.jobs={};self.lock=threading.RLock();self.trust=TrustStore(trust_path);self.stopping=False
     def start(self,data):
         settings=backend.validate(data)
         if not settings['demo']:
             for role,pin in self.trust.trusted(settings).items():settings[role]['fingerprint']=pin
         with self.lock:
+            if self.stopping:raise backend.UserError('Приложение завершает работу.')
             if any(j.status=='running' for j in self.jobs.values()):raise backend.UserError('Дождитесь завершения текущей операции или остановите её.')
             # Expire credential-bearing archives in memory.
             for j in self.jobs.values():j.artifact=None
@@ -78,6 +79,13 @@ class Handler(BaseHTTPRequestHandler):
             if not 0<length<=1024*1024:raise backend.UserError('Некорректный размер запроса.')
             if self.headers.get_content_type()!='application/json':raise backend.UserError('Нужен JSON-запрос.')
             data=json.loads(self.rfile.read(length));path=urllib.parse.urlsplit(self.path).path
+            if path=='/api/exit':
+                application=self.server.application
+                with application.lock:
+                    if any(j.status=='running' for j in application.jobs.values()):raise backend.UserError('Сначала дождитесь завершения операции или остановите её штатной кнопкой.')
+                    application.stopping=True
+                self.send(200,{'message':'Приложение завершено. Вкладку можно закрыть.'})
+                threading.Thread(target=self.server.shutdown,daemon=True).start();return
             if path=='/api/ssh-command':
                 self.send(200,backend.ssh_copy_command(data.get('host',''),data.get('port',22),data.get('platform',local_platform()),data.get('key_path','~/.ssh/id_ed25519')));return
             if path=='/api/ssh/prepare':
