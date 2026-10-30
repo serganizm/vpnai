@@ -116,6 +116,11 @@ class HTTP(unittest.TestCase):
   h={'X-Local-Token':self.application.token};h.update(headers or {})
   if data is not None:h['Content-Type']='application/json';data=json.dumps(data)
   c.request(method,path,data,h);r=c.getresponse();result=(r.status,r.read(),dict(r.headers));c.close();return result
+ def test_embedded_help_and_docs_without_secrets(self):
+  self.assertEqual(self.request('/help')[0],200)
+  self.assertEqual(self.request('/docs/STANDALONE.md')[0],200)
+  self.assertEqual(self.request('/docs/../../backend.py')[0],404)
+  self.assertIn('standalone',json.loads(self.request('/api/info')[1]))
  def test_static_csp_and_traversal(self):
   code,body,headers=self.request('/');self.assertEqual(code,200);self.assertIn('Content-Security-Policy',headers)
   self.assertEqual(self.request('/../backend.py')[0],404)

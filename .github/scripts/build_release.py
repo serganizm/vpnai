@@ -18,7 +18,7 @@ for name,digest in manifest.items():
     files.append(path)
 files.append(manifest_file)
 output=ROOT/'build';output.mkdir(exist_ok=True)
-archive=output/('VPNAI-'+version+'.zip')
+archive=output/('VPNAI-source-'+version+'.zip')
 with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as package:
     for path in sorted(files):
         name='VPNAI/'+path.relative_to(ROOT).as_posix()

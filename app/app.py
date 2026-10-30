@@ -48,11 +48,17 @@ class Handler(BaseHTTPRequestHandler):
         if path in static:
             p=ROOT/'static'/static[path];mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8'}[p.suffix]
             self.send(200,p.read_bytes(),mime);return
+        if path=='/help':
+            self.send(200,(ROOT/'readme.txt' if getattr(sys,'frozen',False) else ROOT.parent/'readme.txt').read_bytes(),'text/plain; charset=utf-8');return
+        if path.startswith('/docs/') and path[len('/docs/'):] in {'SETUP.md','readme.md','SSH_TRUST.md','STANDALONE.md','TEST_REPORT.md','ARCHITECTURE.md','RELEASE_NOTES.md'}:
+            folder=ROOT/'docs' if getattr(sys,'frozen',False) else ROOT.parent/'docs'
+            p=folder/path[len('/docs/'):]
+            if p.is_file():self.send(200,p.read_bytes(),'text/plain; charset=utf-8');return
         if not self.authorized():self.send(403,{'error':'Откройте адрес из окна запуска приложения.'});return
         if path=='/api/info':
             try:backend.get_paramiko();ssh=True
             except backend.UserError:ssh=False
-            self.send(200,{'platform':local_platform(),'ssh_available':ssh,'running':[j.id for j in self.server.application.jobs.values() if j.status=='running']});return
+            self.send(200,{'platform':local_platform(),'ssh_available':ssh,'standalone':bool(getattr(sys,'frozen',False)),'running':[j.id for j in self.server.application.jobs.values() if j.status=='running']});return
         pieces=path.strip('/').split('/')
         if len(pieces) in (3,4) and pieces[:2]==['api','jobs']:
             job=self.server.application.jobs.get(pieces[2])
@@ -102,7 +108,12 @@ class Server(ThreadingHTTPServer):
     def __init__(self,address,application):self.application=application;super().__init__(address,Handler)
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--port',type=int,default=0);parser.add_argument('--no-browser',action='store_true');args=parser.parse_args()
+    for stream in (sys.stdout,sys.stderr):
+        if hasattr(stream,'reconfigure'):stream.reconfigure(encoding='utf-8',errors='replace')
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--self-test',action='store_true');parser.add_argument('--port',type=int,default=0);parser.add_argument('--no-browser',action='store_true');args=parser.parse_args()
+    if args.self_test:
+        from bundled_check import self_test
+        print(json.dumps(self_test()),flush=True);return
     app=Application();server=Server(('127.0.0.1',args.port),app)
     url=f'http://127.0.0.1:{server.server_port}/#'+app.token
     print('\nVPNAI · локальный установщик\n\n'+url+'\n\nНе закрывайте это окно во время операции. Для выхода: Ctrl+C.\n',flush=True)

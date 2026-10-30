@@ -106,3 +106,12 @@ class VerificationRegression(unittest.TestCase):
   ru=self.EP('ru');original=ru.python
   ru.python=lambda code,data=None:'{' if 'split-status' in code else original(code,data)
   with self.assertRaisesRegex(engine.InstallError,'Состояние раздельных маршрутов.*JSONDecodeError'):engine.verify(self.config('split'),ru,self.EP('nl'),write_report=False)
+
+ def test_missing_bundled_ssh_never_requests_pip_or_setup_script(self):
+  import builtins
+  original=builtins.__import__
+  def importing(name,*args,**kwargs):
+   if name=='paramiko':raise ImportError('missing bundled module')
+   return original(name,*args,**kwargs)
+  with patch.object(sys,'frozen',True,create=True),patch.object(builtins,'__import__',side_effect=importing),self.assertRaises(backend.UserError) as error:backend.get_paramiko()
+  self.assertIn('Встроенный',str(error.exception));self.assertNotIn('setup-ssh',str(error.exception))

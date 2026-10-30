@@ -1,5 +1,5 @@
 """Local controller: explicit SSH targets, in-memory credentials and background jobs."""
-import ast,base64,contextlib,hashlib,importlib.util,io,ipaddress,json,pathlib,re,secrets,shlex,socket,threading,time,zipfile
+import ast,base64,contextlib,hashlib,importlib.util,io,ipaddress,json,pathlib,re,secrets,shlex,socket,sys,threading,time,zipfile
 ROOT=pathlib.Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('vpn_engine',ROOT/'core/engine.py');engine=importlib.util.module_from_spec(spec);spec.loader.exec_module(engine)
 MODES={'split','full_mixed','full_nl'}
@@ -92,7 +92,9 @@ def installed_modes(ep,previous):
 
 def get_paramiko():
     try:import paramiko;return paramiko
-    except ImportError:raise UserError('Для реальных серверов установите SSH-компонент: запустите из папки app файл для своей ОС: setup-ssh-windows.bat (Windows), setup-ssh-macos.command (macOS) или setup-ssh-linux.sh (Linux). Перед установкой закройте приложение, после установки запустите его снова.')
+    except ImportError:
+        if getattr(sys,'frozen',False):raise UserError('Встроенный SSH-компонент недоступен. Скачайте целиком самостоятельную сборку VPNAI для вашей ОС; устанавливать Paramiko отдельно не требуется.') from None
+        raise UserError('Для реальных серверов установите SSH-компонент: запустите из папки app файл для своей ОС: setup-ssh-windows.bat (Windows), setup-ssh-macos.command (macOS) или setup-ssh-linux.sh (Linux). Перед установкой закройте приложение, после установки запустите его снова.')
 
 def fingerprint(key):return 'SHA256:'+base64.b64encode(hashlib.sha256(key.asbytes()).digest()).decode().rstrip('=')
 
