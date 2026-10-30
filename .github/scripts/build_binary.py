@@ -5,7 +5,7 @@ parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--version',required=True);parser.add_argument('--target',required=True)
 a=parser.parse_args()
 if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?',a.version):parser.error('Invalid version')
-targets={'windows-x64':('Windows',{'amd64','x86_64'},'.exe'),'linux-x64':('Linux',{'amd64','x86_64'},''),'macos-arm64':('Darwin',{'arm64','aarch64'},'.command'),'macos-x64':('Darwin',{'amd64','x86_64'},'.command')}
+targets={'windows-x64':('Windows',{'amd64','x86_64'},'.exe'),'linux-x64':('Linux',{'amd64','x86_64'},''),'macos-arm64':('Darwin',{'arm64','aarch64'},'.command')}
 if a.target not in targets:parser.error('Invalid target')
 os_name,machines,extension=targets[a.target]
 if platform.system()!=os_name or platform.machine().lower() not in machines:parser.error('Runner architecture does not match target')

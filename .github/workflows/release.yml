@@ -6,7 +6,7 @@ on:
       tag:
         description: 'Existing release tag'
         required: true
-        default: 'v0.1.8'
+        default: 'v0.1.9'
   push:
     tags:
       - 'v[0-9]*'
@@ -38,9 +38,6 @@ jobs:
           - os: macos-15
             target: macos-arm64
             arch: arm64
-          - os: macos-15-intel
-            target: macos-x64
-            arch: x64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
@@ -99,12 +96,12 @@ jobs:
           pattern: native-*
           merge-multiple: true
           path: build/packages
-      - name: Verify all four targets and write checksums
+      - name: Verify all three targets and write checksums
         run: |
           python3 - <<'PYCODE'
           import hashlib,os,pathlib,shutil
           root=pathlib.Path('build');version=os.environ['RELEASE_TAG'];out=root/'release';out.mkdir()
-          names=[f'VPNAI-{version}-windows-x64.exe',f'VPNAI-{version}-linux-x64.tar.gz',f'VPNAI-{version}-macos-arm64.zip',f'VPNAI-{version}-macos-x64.zip']
+          names=[f'VPNAI-{version}-windows-x64.exe',f'VPNAI-{version}-linux-x64.tar.gz',f'VPNAI-{version}-macos-arm64.zip']
           for name in names:
               source=root/'packages'/name
               if not source.is_file():raise SystemExit('Missing tested package: '+name)
