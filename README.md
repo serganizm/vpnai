@@ -7,14 +7,14 @@
 
 ## Скачать и запустить
 
-[Релиз v0.1.15](https://github.com/serganizm/vpnai/releases/tag/v0.1.15)
+[Релиз v0.1.16](https://github.com/serganizm/vpnai/releases/tag/v0.1.16)
 
 | Компьютер | Файл в разделе Assets |
 |---|---|
-| Windows 10/11 x64 | `VPNAI-v0.1.15-windows-x64.exe` |
-| Mac с Apple Silicon | `VPNAI-v0.1.15-macos-arm64.zip` |
-| Linux x64 | `VPNAI-v0.1.15-linux-x64.tar.gz` |
-| Исходники | `VPNAI-source-v0.1.15.zip` |
+| Windows 10/11 x64 | `VPNAI-v0.1.16-windows-x64.exe` |
+| Mac с Apple Silicon | `VPNAI-v0.1.16-macos-arm64.zip` |
+| Linux x64 | `VPNAI-v0.1.16-linux-x64.tar.gz` |
+| Исходники | `VPNAI-source-v0.1.16.zip` |
 
 На macOS и Linux распакуйте архив и запустите исполняемый файл. На Windows
 откройте `.exe`. Python, SSH-компонент и интерфейс уже включены: отдельная
@@ -23,7 +23,7 @@
 
 Для обычного запуска выбирайте готовый файл своей ОС из Assets.
 Автоматические архивы GitHub «Source code» содержат репозиторий для разработки;
-подготовленный архив исходников `VPNAI-source-v0.1.15.zip` содержит приложение,
+подготовленный архив исходников `VPNAI-source-v0.1.16.zip` содержит приложение,
 инструкции и запускные файлы без файлов Git и системного мусора.
 
 ## Как работает

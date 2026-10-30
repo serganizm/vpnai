@@ -20,3 +20,7 @@
 select{appearance:none;-webkit-appearance:none;padding-right:42px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%23c2bfd4' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 16px center;background-size:12px 8px}
 /* Navigation buttons share one grid row and identical tracks. */
 .action-bar{display:grid;grid-template-columns:minmax(180px,220px) minmax(0,1fr) minmax(180px,220px) minmax(180px,220px);align-items:center;gap:12px;overflow-x:auto}.action-buttons{display:contents}.action-bar button.primary{width:100%;max-width:none;min-width:0;height:46px;min-height:46px;margin:0;padding:0 16px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;font-size:12px;line-height:1.2;box-sizing:border-box;grid-row:1}.action-bar>.exit-button{grid-column:1;background:var(--red);border-color:var(--red);color:#341b22}.action-bar>.exit-button:hover{background:#ffbcc1;border-color:#ffbcc1}.action-buttons>.back{grid-column:3}.action-buttons>.next,.action-buttons>#start{grid-column:4}.action-bar button.primary span{margin-left:12px}@media(max-width:760px){.action-bar button.primary{padding:0 10px;font-size:11px}}
+
+main{min-width:0}.lead{max-width:100%;white-space:nowrap;overflow-x:auto}
+
+.lead .source-link{color:var(--purple);text-decoration:underline;text-underline-offset:3px}.lead .source-link:hover{color:var(--blue)}
