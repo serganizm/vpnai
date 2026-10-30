@@ -3,10 +3,10 @@ VPNAI — самостоятельный установщик VPN
 Python и SSH-компонент уже включены в готовые сборки.
 Устанавливать Python, Paramiko, pip или запускать setup-ssh не нужно.
 
-1. Скачайте файл для своей ОС в Assets релиза v0.1.12:
-   Windows 10/11 x64: VPNAI-v0.1.12-windows-x64.exe
-   macOS 15+ Apple Silicon: VPNAI-v0.1.12-macos-arm64.zip
-   Linux x64 (glibc 2.35+): VPNAI-v0.1.12-linux-x64.tar.gz
+1. Скачайте файл для своей ОС в Assets релиза v0.1.13:
+   Windows 10/11 x64: VPNAI-v0.1.13-windows-x64.exe
+   macOS 15+ Apple Silicon: VPNAI-v0.1.13-macos-arm64.zip
+   Linux x64 (glibc 2.35+): VPNAI-v0.1.13-linux-x64.tar.gz
 2. На Windows запустите .exe. На macOS/Linux распакуйте архив и запустите
    единственный исполняемый файл внутри. Для Linux при необходимости
    разрешите запуск файла в его свойствах.
@@ -38,7 +38,7 @@ Python и SSH-компонент уже включены в готовые сб�
   ./menu.sh
 Для нестандартного SSH-порта: ssh -p ПОРТ root@IP_РОССИЙСКОГО_СЕРВЕРА
 
-Архив VPNAI-source-v0.1.12.zip — исходники для разработчиков.
+Архив VPNAI-source-v0.1.13.zip — исходники для разработчиков.
 Только для него нужны отдельный Python и setup-ssh-скрипт.
 В исходниках подробные инструкции находятся в docs/readme.md.
 

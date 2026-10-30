@@ -119,6 +119,7 @@ class CertificateIntegration(unittest.TestCase):
   files={};ep=types.SimpleNamespace(role='nl',write=lambda path,text,mode=0o600:files.update({path:(text,mode)}))
   config=dict(ru_ip='8.8.8.8',nl_ip='9.9.9.9',vpn_net='10.77.0.0/24',gre_net='10.78.0.0/30',ovpn_port=1194,routing_mode='split',auth_mode='password')
   engine.deploy(config,ep,'fixture-not-a-real-psk')
+  self.assertTrue(all(path.startswith('/') and chr(92) not in path for path in files))
   self.assertEqual(files['/usr/local/sbin/ovpn-acme-proxy.py'][1],0o755)
   self.assertIn('User=nobody',files['/etc/systemd/system/ovpn-acme-proxy.service'][0])
 

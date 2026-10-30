@@ -214,7 +214,7 @@ secrets {{
 def deploy(c,ep,psk):
     for p in sorted((ROOT/'payload'/ep.role).rglob('*')):
         if not p.is_file():continue
-        path='/'+str(p.relative_to(ROOT/'payload'/ep.role))
+        path='/'+p.relative_to(ROOT/'payload'/ep.role).as_posix()
         text=render(p.read_text(),c,ep.role)
         executable=text.startswith('#!')
         mode=0o700 if executable else 0o600
