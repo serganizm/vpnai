@@ -200,47 +200,63 @@ def deploy(c,ep,psk):
     ep.write('/var/lib/ovpn-installer/role',ep.role+'\n')
 
 ROLLBACK=r'''#!/usr/bin/python3
-import pathlib,json,subprocess,shlex,os
-state=pathlib.Path('/var/lib/ovpn-installer')
-def call(*a):return subprocess.run(a,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode
+import pathlib,json,subprocess,shlex,os,shutil,re
+P=pathlib.Path
+state=P('/var/lib/ovpn-installer')
+def fail(code):
+ print('VPNAI_DIAG:'+code,flush=True);raise SystemExit(1)
+def call(*a):
+ try:return subprocess.run(a,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode
+ except FileNotFoundError:fail('CLEAN_TOOLS')
 if os.geteuid()!=0:raise SystemExit('Run as root')
-for unit in ['openvpn-server@ru','openvpn-server@ru-tcp','ovpn-tcp-network','ovpn-list-update.timer','ovpn-crl-refresh.timer','ovpn-links','ovpn-links-cleanup','ovpn-cert-renew.timer','ovpn-network']:
- call('systemctl','disable','--now',unit)
+try:
+ role=(state/'role').read_text().strip();owned=json.loads((state/'owned.json').read_text());baseline=json.loads((state/'baseline.json').read_text())
+except (OSError,ValueError):fail('CLEAN_OWNER')
+if role not in ('ru','nl'):fail('CLEAN_ROLE')
+if any(not shutil.which(name) for name in ('systemctl','ip','iptables','swanctl','sysctl')):fail('CLEAN_TOOLS')
+for info in owned.values():
+ if info.get('backup') and not P(info['backup']).is_file():fail('CLEAN_BACKUP')
+units=['ovpn-tcp-network','ovpn-network']
+if role=='ru':units=['openvpn-server@ru','openvpn-server@ru-tcp','ovpn-list-update.timer','ovpn-crl-refresh.timer','ovpn-links','ovpn-links-cleanup','ovpn-cert-renew.timer']+units
+for unit in units:call('systemctl','disable','--now',unit)
 call('swanctl','--terminate','--ike','ovpn-gre')
-p=pathlib.Path('/usr/local/sbin/ovpn-network')
+p=P('/usr/local/sbin/ovpn-network')
 if p.exists():
- for line in reversed((p.read_text()+'\n'+(pathlib.Path('/usr/local/sbin/ovpn-tcp-network').read_text() if pathlib.Path('/usr/local/sbin/ovpn-tcp-network').exists() else '')).splitlines()):
+ tcp=P('/usr/local/sbin/ovpn-tcp-network')
+ for line in reversed((p.read_text()+'\n'+(tcp.read_text() if tcp.exists() else '')).splitlines()):
   if line.startswith('rule '):
    table,chain,*args=shlex.split(line)[1:]
    while call('iptables','-t',table,'-D',chain,*args)==0:pass
-call('iptables','-t','mangle','-F','OVPN_CLASSIFY');call('iptables','-t','mangle','-X','OVPN_CLASSIFY')
-call('ip6tables','-D','FORWARD','-i','tun-ovpn','-j','REJECT');call('ip6tables','-D','FORWARD','-i','tun-ovpn-tcp','-j','REJECT')
-call('ip','rule','del','pref','10310','fwmark','0x310/0xfff','table','310');call('ip','route','flush','table','310')
-subprocess.run(['ip','route','flush','dev','gre-nl'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-call('ip','link','del','gre-nl')
-for name in ['ovpn_nl','ovpn_force_ru']:call('ipset','destroy',name)
-# Remove only our nginx symlink, never another site's configuration.
-link=pathlib.Path('/etc/nginx/sites-enabled/ovpn-links')
-if link.is_symlink():link.unlink()
-owned=json.loads((state/'owned.json').read_text())
+if role=='ru':
+ call('iptables','-t','mangle','-F','OVPN_CLASSIFY');call('iptables','-t','mangle','-X','OVPN_CLASSIFY')
+ if shutil.which('ip6tables'):
+  call('ip6tables','-D','FORWARD','-i','tun-ovpn','-j','REJECT');call('ip6tables','-D','FORWARD','-i','tun-ovpn-tcp','-j','REJECT')
+ call('ip','rule','del','pref','10310','fwmark','0x310/0xfff','table','310');call('ip','route','flush','table','310')
+call('ip','route','flush','dev','gre-nl');call('ip','link','del','gre-nl')
+if role=='ru':
+ if shutil.which('ipset'):
+  for name in ['ovpn_nl','ovpn_force_ru']:call('ipset','destroy',name)
+ link=P('/etc/nginx/sites-enabled/ovpn-links')
+ if link.is_symlink():link.unlink()
 for path,info in reversed(list(owned.items())):
- p=pathlib.Path(path)
+ p=P(path)
  if path.startswith('/var/lib/ovpn-installer') or path in ['/usr/local/sbin/ovpn-install-rollback','/etc/openvpn/server/users.json','/etc/ovpn-routing/source.url','/etc/ovpn-routing/extra-nl.txt','/etc/ovpn-routing/force-ru.txt']:continue
+ if p.is_symlink():fail('CLEAN_PATH')
  if info['backup']:
-  import shutil
-  p.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(info['backup'],p)
+  p.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(P(info['backup']),p)
  else:p.unlink(missing_ok=True)
-# Preserve users, PKI, downloaded lists, exports and install state for diagnosis/resume.
-baseline=json.loads((state/'baseline.json').read_text())
 for key,value in baseline['sysctl'].items():
  if value:call('sysctl','-w',key+'='+value)
 call('systemctl','daemon-reload')
-# New IPsec daemon had to be absent at preflight. No other existing tunnel is stopped.
-call('systemctl','disable','--now','strongswan')
-call('nginx','-t')==0 and call('systemctl','reload','nginx')
+# Do not stop an IPsec daemon now serving connections from another installation.
+conns=subprocess.run(['swanctl','--list-conns'],capture_output=True,text=True)
+foreign=conns.returncode!=0 or any(name!='ovpn-gre' for name in re.findall(r'^([^\s:]+):',conns.stdout,re.M))
+if not foreign:call('systemctl','disable','--now','strongswan')
+if role=='ru' and shutil.which('nginx') and call('nginx','-t')==0:call('systemctl','reload','nginx')
 (state/'rolled-back').write_text('Rollback performed; resume required.\n')
-print('Own VPN rules/configs removed. SSH and другие VPN were not changed. Packages/PKI/users retained.')
+print('Own VPN rules/configs removed. Packages/PKI/users retained for recovery.')
 '''
+
 
 def install_packages(ep):
     pkgs='strongswan-swanctl charon-systemd libstrongswan-standard-plugins libcharon-extra-plugins iproute2 iptables curl ca-certificates openssl'
@@ -323,6 +339,12 @@ if DATA not in users:subprocess.run(['ovpn-user','add',DATA],check=True)
 ''',name)
 
 DIAGNOSTICS={
+ 'CLEAN_OWNER':'не найдены или повреждены данные владельца установки; удаление остановлено',
+ 'CLEAN_ROLE':'роль сервера не совпадает с сохранённой установкой',
+ 'CLEAN_PATH':'обнаружена неожиданная ссылка или небезопасный путь; удаление остановлено',
+ 'CLEAN_BACKUP':'резервная копия отсутствует, повреждена или недоступна',
+ 'CLEAN_TOOLS':'отсутствует обязательная системная утилита для удаления',
+ 'CLEAN_ROLLBACK':'не удалось завершить откат сетевых настроек; сохранены данные для повторного удаления',
  'NAMESPACE_BUSY':'временная тестовая сеть или интерфейс уже существуют; чужие объекты не удалялись',
  'PROBE_ADDRESS_BUSY':'адрес теста используется клиентом; тест остановлен без отключения клиента',
  'NAMESPACE_SETUP':'не удалось создать временную тестовую сеть или её маршрут',

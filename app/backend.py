@@ -234,27 +234,31 @@ def render(text,c,role):
     return s
 engine.render=render
 
-CLEAN=r'''import pathlib,tarfile,datetime,os,shutil,subprocess
-state=pathlib.Path('/var/lib/ovpn-installer')
-if not (state/'owned.json').is_file():raise SystemExit('Нет данных владельца установки')
-paths=['/var/lib/ovpn-installer']
-if DATA=='ru':paths+=['/etc/openvpn/server/pki','/etc/openvpn/server/users.json','/etc/openvpn/server/tls-crypt.key','/etc/ovpn-routing','/var/lib/ovpn-routing','/root/ovpn-profiles','/root/ovpn-downloads','/var/lib/ovpn-links','/root/ovpn-install-report.json']
-backup=pathlib.Path('/root/ovpn-backup-'+datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')+'.tar.gz')
-fd=os.open(backup,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
-with os.fdopen(fd,'wb') as stream,tarfile.open(fileobj=stream,mode='w:gz') as archive:
- for item in paths:
-  if pathlib.Path(item).exists():archive.add(item,arcname=item.lstrip('/'))
-rollback=pathlib.Path('/usr/local/sbin/ovpn-install-rollback')
-if not rollback.is_file():raise SystemExit('Нет скрипта отката')
-subprocess.run([str(rollback)],check=True)
-for item in paths:
- p=pathlib.Path(item)
- if p.is_symlink():raise SystemExit('Неожиданная ссылка')
- if p.is_dir():shutil.rmtree(p)
- else:p.unlink(missing_ok=True)
-rollback.unlink(missing_ok=True)
-print('OK')
-'''
+from removal import CLEAN, PREFLIGHT as CLEAN_PREFLIGHT, BACKUP as CLEAN_BACKUP
+
+def remove_installation(job,c,ru,nl):
+    pair={k:c[k] for k in ('ru_ip','nl_ip')};report={};job.report['removal']=report
+    endpoints=(nl,ru)
+    for ep in endpoints:
+        job.checkpoint();role=ep.role
+        job.event('Проверка удаления',12,'Проверка данных владельца и готовности: '+('зарубежный' if role=='nl' else 'российский')+' сервер.')
+        try:report[role]=json.loads(ep.python(CLEAN_PREFLIGHT,{'role':role,'pair':pair}))
+        except UserError as e:raise UserError('Проверка перед удалением: '+str(e)) from None
+    # Both backups must finish before any service is stopped on either host.
+    for ep in endpoints:
+        job.checkpoint();role=ep.role;meta=report[role]
+        if meta['already_removed']:continue
+        job.event('Резервная копия',15,'Создание закрытого архива перед удалением: '+('зарубежный' if role=='nl' else 'российский')+' сервер.')
+        try:meta['backup']=json.loads(ep.python(CLEAN_BACKUP,{'role':role,'pair':pair}))['backup']
+        except UserError as e:raise UserError('Резервное копирование перед удалением: '+str(e)) from None
+    for index,ep in enumerate(endpoints):
+        job.checkpoint();role=ep.role;meta=report[role]
+        if meta['already_removed'] and not meta.get('finalize'):meta['complete']=True;continue
+        job.event('Удаление',25+index*30,'Удаление компонентов своей установки: '+('зарубежный' if role=='nl' else 'российский')+' сервер.')
+        try:ep.python(CLEAN,{'role':role,'pair':pair,'backup':meta['backup'],'rollback':engine.ROLLBACK})
+        except UserError as e:raise UserError('Удаление: '+str(e)+' Уже завершённые этапы указаны в отчёте; повторный запуск учитывает частичное удаление.') from None
+        meta['complete']=True
+
 
 class Job:
     def __init__(self,settings):
@@ -361,9 +365,7 @@ def real_run(job):
             job.report['details']={r:{'ipsec':inv[r]['swan'],'reserved_files':inv[r]['reserved_files']} for r in ('ru','nl')}
             job.event('Проверка завершена',100,'Доступ и состояние прочитаны. Настройки не менялись.');return
         if s['action'] in ('fresh','remove'):
-            if not previous or not all(inv[r]['managed'] for r in ('ru','nl')):raise UserError('Удаление разрешено только для установки с сохранёнными данными владельца на обоих серверах.')
-            job.event('Резервное копирование и удаление',15,'Архивы останутся в /root/ovpn-backup-*.tar.gz на обоих серверах.')
-            for ep in (nl,ru):ep.python(CLEAN,ep.role)
+            remove_installation(job,c,ru,nl)
             previous=None
             if s['action']=='remove':job.event('Удалено',100,'Компоненты этой установки удалены. Другие службы сохранены.');return
             inv={ep.role:ep.inventory() for ep in endpoints}
