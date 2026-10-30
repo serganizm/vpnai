@@ -61,6 +61,9 @@ def validate(data):
     backup=data.get('restore_backup','')
     if not isinstance(backup,str) or (backup and not re.fullmatch(r'ovpn-backup-[0-9]{8}-[0-9]{6}-[a-f0-9]{12}\.tar\.gz',backup)):raise UserError('Некорректное имя резервного архива.')
     if backup and clean['action']!='resume':raise UserError('Выбор архива доступен только для восстановления.')
+    revision=data.get('update_revision','')
+    if not isinstance(revision,str) or (revision and not re.fullmatch(r'[a-f0-9]{64}',revision)):raise UserError('Некорректная версия текущей конфигурации.')
+    clean['update_revision']=revision
     clean['restore_backup']=backup
     if (clean['action'] in ('remove','fresh') or backup) and data.get('confirmed') is not True:raise UserError('Подтвердите выбранное удаление флажком «Я подтверждаю».')
     return clean
@@ -69,8 +72,8 @@ def validate(data):
 def session_payload(data):
     if not isinstance(data,dict):raise UserError('Некорректные данные текущего сеанса.')
     result={}
-    fields=('action','routing','auth','initial_user','comment','vpn_port','update_packages','ru_routes','eu_routes')
-    server_fields=('host','port','user','method','password','key','key_path','passphrase')
+    fields=('action','routing','auth','initial_user','comment','vpn_port','update_packages','ru_routes','eu_routes','update_revision','update_user_count','update_loaded_pair')
+    server_fields=('host','port','user','method','password','key','key_path','passphrase','alias')
     def copy_value(value):
         if isinstance(value,str) and len(value)<=150000:return value
         if type(value) in (int,bool):return value
@@ -82,6 +85,69 @@ def session_payload(data):
         if not isinstance(data[role],dict):raise UserError('Некорректные данные сервера.')
         result[role]={key:copy_value(value) for key,value in data[role].items() if key in server_fields}
     return result
+
+
+UPDATE_READ=r"""import pathlib,json,fcntl
+# VPNAI_UPDATE_SNAPSHOT
+p=pathlib.Path('/var/lib/ovpn-installer/state.json')
+state=json.loads(p.read_text()) if p.is_file() else None
+base=pathlib.Path('/etc/ovpn-routing')
+with open('/run/ovpn-user.lock','a') as lock:
+ fcntl.flock(lock,fcntl.LOCK_SH)
+ db=pathlib.Path('/etc/openvpn/server/users.json')
+ users=json.loads(db.read_text()) if db.is_file() else {}
+ public=[{'name':n,'enabled':bool(v.get('enabled'))} for n,v in sorted(users.items()) if not v.get('deleted')]
+config=state.get('config',{}) if state else {}
+print(json.dumps({'config':{k:config.get(k) for k in ('ru_ip','nl_ip','vpn_net','tcp_net','gre_net','ovpn_port','routing_mode','auth_mode')},'users':public,'ru_routes':(base/'force-ru.txt').read_text() if (base/'force-ru.txt').exists() else '', 'eu_routes':(base/'extra-nl.txt').read_text() if (base/'extra-nl.txt').exists() else '', 'state':bool(state)}))
+"""
+
+def update_configuration(ru,settings,previous):
+    raw=json.loads(ru.python(UPDATE_READ))
+    if not raw.get('state'):raise UserError('Сохранённая конфигурация не найдена. Выберите установку или восстановление из архива.')
+    if any(raw['config'].get(k)!=settings[role]['host'] for k,role in (('ru_ip','ru'),('nl_ip','nl'))):raise UserError('Конфигурация относится к другой паре серверов.')
+    actual=installed_modes(ru,previous,allow_incomplete=True)
+    if actual['routing'] not in MODES or actual['auth'] not in AUTH:raise UserError('Не удалось определить текущие режимы. Проверьте конфигурацию сервера.')
+    raw['config']['routing_mode']=actual['routing'];raw['config']['auth_mode']=actual['auth']
+    raw['ru_routes']=cidrs(raw['ru_routes']);raw['eu_routes']=cidrs(raw['eu_routes'])
+    revision=hashlib.sha256(json.dumps(raw,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    return dict(raw,revision=revision,user_count=len(raw['users']),active_user_count=sum(u['enabled'] for u in raw['users']))
+
+def read_update_configuration(settings):
+    ru=Remote('ru',dict(settings['ru']))
+    try:
+        ru.connect();ru.lock()
+        previous=json.loads(ru.python("import pathlib; p=pathlib.Path('/var/lib/ovpn-installer/state.json'); print(p.read_text() if p.is_file() else 'null')"))
+        return update_configuration(ru,settings,previous)
+    finally:ru.close()
+
+def backup_update(job,c,ru,nl):
+    import backups
+    pair={k:c[k] for k in ('ru_ip','nl_ip')};snapshot=backups.snapshot(pair,'before-update');saved={}
+    for ep in (ru,nl):
+        job.checkpoint();saved[ep.role]=json.loads(ep.python(CLEAN_BACKUP,{'role':ep.role,'pair':pair,'snapshot':snapshot,'force_snapshot':True}))['backup']
+    job.report['update_backups']=saved
+    return saved
+
+UPDATE_PASSWORDS=r"""import pathlib,json,hashlib,hmac,subprocess,fcntl
+# Existing certificates and valid passwords are preserved; certificate-only accounts may lack a saved password.
+generated=[]
+with open('/run/ovpn-user.lock','a') as lock:
+ fcntl.flock(lock,fcntl.LOCK_SH)
+ users=json.loads(pathlib.Path('/etc/openvpn/server/users.json').read_text())
+ candidates=[]
+ for name,record in users.items():
+  if not record.get('enabled') or record.get('deleted'):continue
+  file=pathlib.Path('/root/ovpn-profiles')/(name+'-credentials.txt')
+  password=next((line[10:] for line in file.read_text().splitlines() if line.startswith('Password: ')),None) if file.is_file() else None
+  try:valid=password is not None and hmac.compare_digest(hashlib.pbkdf2_hmac('sha256',password.encode(),bytes.fromhex(record['salt']),300000).hex(),record['hash'])
+  except (KeyError,ValueError):valid=False
+  if not valid:candidates.append(name)
+for name in candidates:
+ result=subprocess.run(['/usr/local/sbin/ovpn-user','passwd',name,'--auto'],capture_output=True,text=True)
+ if result.returncode:raise SystemExit('Не удалось подготовить пароль существующего пользователя.')
+ generated.append(name)
+print(json.dumps({'generated':generated}))
+"""
 
 
 INSPECT_MODES = r"""import pathlib,json
@@ -358,13 +424,13 @@ def restore_archive(job,s,c,ru,nl,inv):
 
 class Job:
     def __init__(self,settings):
-        self.id=secrets.token_urlsafe(18);self.demo=settings['demo'];self.settings=settings;self.cancel=threading.Event();self.lock=threading.RLock();self.status='running';self.phase='Подготовка';self.progress=0;self.events=[];self.report={'demo':self.demo,'action':settings['action'],'routing':settings['routing'],'auth':settings['auth'],'update_packages':settings['update_packages'],'servers':{r:settings[r]['host'] for r in ('ru','nl')},'initial_user':settings['initial_user'],'lists':{'ru':settings['ru_routes'],'eu':settings['eu_routes']}};self.artifact=None;self.expires=0
+        self.ssh_connected=False;self.id=secrets.token_urlsafe(18);self.demo=settings['demo'];self.settings=settings;self.cancel=threading.Event();self.lock=threading.RLock();self.status='running';self.phase='Подготовка';self.progress=0;self.events=[];self.report={'demo':self.demo,'action':settings['action'],'routing':settings['routing'],'auth':settings['auth'],'update_packages':settings['update_packages'],'servers':{r:settings[r]['host'] for r in ('ru','nl')},'initial_user':settings['initial_user'],'lists':{'ru':settings['ru_routes'],'eu':settings['eu_routes']}};self.artifact=None;self.expires=0
     def event(self,phase,progress,message):
         with self.lock:self.phase=phase;self.progress=progress;self.events.append({'time':time.strftime('%H:%M:%S'),'message':message})
     def checkpoint(self):
         if self.cancel.is_set():raise Cancelled('Операция остановлена между этапами.')
     def public(self):
-        with self.lock:return {'id':self.id,'status':self.status,'phase':self.phase,'progress':self.progress,'events':list(self.events),'report':self.report,'download':bool(self.artifact and time.time()<self.expires),'demo':self.demo}
+        with self.lock:return {'id':self.id,'status':self.status,'phase':self.phase,'progress':self.progress,'events':list(self.events),'report':self.report,'download':bool(self.artifact and time.time()<self.expires),'demo':self.demo,'ssh_connected':self.ssh_connected}
     def run(self):
         try:
             real_run(self)
@@ -398,10 +464,11 @@ with open('/run/ovpn-user.lock','a') as lock:
 
 def real_run(job):
     s=job.settings;c=config(s);engine.validate(c)
-    endpoints=[Remote('ru',dict(s['ru'])),Remote('nl',dict(s['nl']))];ru,nl=endpoints;mutated=False;previous=None
+    endpoints=[Remote('ru',dict(s['ru'])),Remote('nl',dict(s['nl']))];ru,nl=endpoints;mutated=False;previous=None;current_update=False;update_snapshot=None
     try:
         job.event('SSH',3,'Подключение к двум указанным серверам с проверкой отпечатков.')
         for ep in endpoints:job.checkpoint();ep.connect()
+        job.ssh_connected=True
         for ep in endpoints:ep.lock()
         job.event('ОС и Python',5,'Определение ОС и наличия Python 3 на обоих серверах.')
         system={ep.role:system_info(ep) for ep in endpoints}
@@ -431,10 +498,10 @@ def real_run(job):
             job.report['installed']=detected;job.report['requested_routing']=s['routing'];job.report['requested_auth']=s['auth']
             job.report['routing']=detected['routing'];job.report['auth']=detected['auth'];job.report['lists_from_server']=True
             warnings=[]
-            if detected.get('source')=='saved-incomplete':warnings.append('Восстановление незавершённой установки использует сохранённые режимы: профили были убраны автоматическим откатом.')
-            if detected['legacy']:warnings.append('Обнаружена старая установка; проверка учитывает её формат без изменения серверов.')
-            if detected['routing']!=s['routing']:warnings.append('Фактическая маршрутизация: '+{'full_mixed':'весь IPv4 через VPN с выбором RU/NL','full_nl':'весь IPv4 через зарубежный сервер','split':'раздельные маршруты','unknown':'не удалось однозначно определить'}[detected['routing']]+'. Выбор в форме при проверке её не меняет.')
-            if detected['auth']!=s['auth']:warnings.append('Авторизация в отчёте взята из действующих настроек сервера.')
+            if detected.get('source')=='saved-incomplete':warnings.append('Обнаружена незавершённая установка. Обновление применит выбранные в форме режимы.')
+            if detected['legacy']:warnings.append('Обнаружена старая установка; обновление развернёт актуальные компоненты.' if s['action']=='resume' else 'Обнаружена старая установка; проверка учитывает её формат без изменения серверов.')
+            if s['action'] in ('check','verify') and detected['routing']!=s['routing']:warnings.append('Фактическая маршрутизация: '+{'full_mixed':'весь IPv4 через VPN с выбором RU/NL','full_nl':'весь IPv4 через зарубежный сервер','split':'раздельные маршруты','unknown':'не удалось однозначно определить'}[detected['routing']]+'. Выбор в форме при проверке её не меняет.')
+            if s['action'] in ('check','verify') and detected['auth']!=s['auth']:warnings.append('Авторизация в отчёте взята из действующих настроек сервера.')
             job.report['warnings']=warnings
             for warning in warnings:job.event('Режим сервера',10,warning)
         if s['action']=='check':
@@ -458,9 +525,17 @@ def real_run(job):
             if detected:
                 if detected['routing']=='unknown' or detected['auth']=='unknown':raise UserError('Режимы двух OpenVPN-служб не удалось однозначно определить. Серверы не изменены; проверьте конфигурации перед восстановлением.')
                 saved['routing_mode']=detected['routing'];saved['auth_mode']=detected['auth']
-            if s['action']=='resume' and (saved.get('routing_mode','split')!=c['routing_mode'] or saved.get('auth_mode','password')!=c['auth_mode']):raise UserError('Восстановление сохраняет режим маршрутизации и авторизации. Выберите сохранённые режимы либо установку заново.')
             c=dict(saved);c.setdefault('routing_mode','split');c.setdefault('auth_mode','password')
-            if s['action']=='resume':c['initial_user']=s['initial_user']
+            if s['action']=='resume':
+                if s.get('restore_backup'):c['initial_user']=s['initial_user']
+                else:
+                    current_update=True;update_snapshot=update_configuration(ru,s,previous)
+                    if not s.get('update_revision') or not secrets.compare_digest(s['update_revision'],update_snapshot['revision']):raise UserError('Конфигурация сервера изменилась или не загружена. Загрузите текущие настройки и проверьте изменения перед запуском.')
+                    c.update(routing_mode=s['routing'],auth_mode=s['auth'],ovpn_port=s['vpn_port'],initial_user='' if update_snapshot['user_count'] else s['initial_user'])
+                    job.report['initial_user']=c['initial_user'];job.report['users_preserved']=update_snapshot['user_count'];job.report['lists_from_server']=False
+                    job.report['lists']={'ru':s['ru_routes'],'eu':s['eu_routes']}
+                    backup_update(job,c,ru,nl)
+                    job.event('Обновление',12,'Текущее состояние сохранено в парные архивы. Будут применены настройки формы; пользователи и сертификаты сохраняются.')
             job.report['routing']=c['routing_mode'];job.report['auth']=c['auth_mode']
         if s['action']=='verify':
             job.event('Проверка VPN',45,'Проверка служб, HTTPS и реальных выходов из серверных тестовых сетей.')
@@ -486,18 +561,25 @@ def real_run(job):
             engine.install_packages(ep);engine.deploy(c,ep,state['psk'])
         job.checkpoint();job.event('Пользователи и списки',46,'Создание PKI и применение выбранных списков маршрутов.')
         # Preserve existing lists on resume. Fresh installations receive only user-entered addresses.
-        ru.write('/etc/ovpn-routing/force-ru.txt','\n'.join(s['ru_routes'])+'\n',preserve=True)
-        ru.write('/etc/ovpn-routing/extra-nl.txt','\n'.join(s['eu_routes'])+'\n',preserve=True)
+        ru.write('/etc/ovpn-routing/force-ru.txt','\n'.join(s['ru_routes'])+'\n',preserve=not current_update)
+        ru.write('/etc/ovpn-routing/extra-nl.txt','\n'.join(s['eu_routes'])+'\n',preserve=not current_update)
         engine.initialize_ru(c,ru)
+        if current_update and c['auth_mode']=='password':
+            generated=json.loads(ru.python(UPDATE_PASSWORDS))['generated'];job.report['passwords_generated']=generated
+            if generated:job.report.setdefault('warnings',[]).append('Для пользователей без сохранённого действующего пароля созданы новые пароли. Получите их в профилях: '+', '.join(generated))
         for ep in (nl,ru):
             job.checkpoint();ep.shell('set -e\nsystemctl daemon-reload\nsystemctl enable --now ovpn-network ovpn-tcp-network strongswan\nsystemctl restart strongswan\nswanctl --load-all\n')
+        if current_update:
+            for ep in (nl,ru):ep.shell('set -e\nsystemctl restart ovpn-network ovpn-tcp-network\n',quiet=True)
         job.checkpoint();job.event('HTTPS',60,'Проверка HTTPS-сертификата; выпуск и продление через защищённый канал NL. HTTP-проверка доступна на RU TCP 80.')
         job.report['https']=engine.setup_https(c,ru,nl)
         if job.report['https'].get('renewal',{}).get('available') is False:
             warning='Рабочий сертификат сохранён, но Let’s Encrypt сейчас недоступен. Автопродление повторит проверку каждый час; проверьте журнал ovpn-cert-renew.'
             job.report.setdefault('warnings',[]).append(warning);job.event('Предупреждение HTTPS',65,warning)
         job.checkpoint();job.event('Запуск VPN',75,'Защищённый туннель и OpenVPN UDP/TCP.')
-        job.report['initial_user_result']=engine.activate(c,ru,nl)
+        job.report['initial_user_result']=engine.activate(c,ru,nl,create_only_if_empty=True) if current_update else engine.activate(c,ru,nl)
+        if current_update and job.report['initial_user_result'].get('skipped_existing'):
+            c['initial_user']='';job.report['initial_user']=''
         # Apply comment and regenerate all profiles according to the selected auth mode.
         ru.python(r'''import pathlib,subprocess,fcntl
 with open('/run/ovpn-user.lock','a') as lock:
@@ -508,20 +590,26 @@ for name,record in users.items():
  if record.get('enabled') and not record.get('deleted'):subprocess.run(['ovpn-user','profiles',name],check=True,stdout=subprocess.DEVNULL)
 record=users.get(DATA['name'],{})
 folder=pathlib.Path('/root/ovpn-profiles')
-if not record.get('enabled') or record.get('deleted') or not all((folder/(DATA['name']+suffix)).is_file() for suffix in ('-UDP.ovpn','-TCP.ovpn')):
+if DATA['name'] and (not record.get('enabled') or record.get('deleted') or not all((folder/(DATA['name']+suffix)).is_file() for suffix in ('-UDP.ovpn','-TCP.ovpn'))):
  print('VPNAI_DIAG:INITIAL_USER');raise SystemExit(1)
-''',{'name':s['initial_user'],'comment':s['comment'],'preserve':bool(previous)})
+''',{'name':c['initial_user'],'comment':s['comment'],'preserve':bool(previous)})
         ru.shell('set -e\nsystemctl restart openvpn-server@ru openvpn-server@ru-tcp\n')
         job.checkpoint();job.event('Проверка VPN',88,'Проверка служб, HTTPS и двух выходов через изолированные тестовые сети.')
         job.report['verification']=engine.verify(c,ru,nl)
-        job.artifact=collect(ru);job.expires=time.time()+600
+        if not current_update or update_snapshot['active_user_count'] or not update_snapshot['user_count']:
+            job.artifact=collect(ru);job.expires=time.time()+600
         for ep in endpoints:ep.python("import pathlib;pathlib.Path('/var/lib/ovpn-installer/rolled-back').unlink(missing_ok=True)")
         state['complete']=True;ru.write('/var/lib/ovpn-installer/state.json',json.dumps(state))
         job.report['notice']='Серверные проверки завершены. Дополнительно импортируйте профиль и проверьте VPN со своего устройства.'
+        if current_update:
+            job.report['notice']='Обновление завершено. Настройки применены, серверное меню обновлено, существующие пользователи сохранены. Скачайте обновлённые профили и переподключите устройства.'
+            if job.report.get('passwords_generated'):job.report['notice']+=' Для пользователей без сохранённого пароля созданы новые пароли; они включены в архив профилей.'
         if any(info['reboot_required'] for info in system.values()):job.report['notice']+=' Обновления ОС требуют перезагрузки: '+', '.join('российский сервер' if r=='ru' else 'зарубежный сервер' for r,info in system.items() if info['reboot_required'])+'. Она автоматически не выполнялась.'
         job.event('Готово',100,'Установка завершена. Профили доступны для скачивания 10 минут; меню на сервере: /root/menu.sh.')
     except BaseException:
-        if mutated:
+        if current_update and mutated:
+            job.event('Обновление не завершено',job.progress,'Защитные архивы сохранены: '+str(job.report.get('update_backups',{}))+'. Данные пользователей не удалены; проверьте серверы или восстановите парный архив. Автоматическое удаление компонентов не выполнялось.')
+        elif mutated:
             job.event('Откат',job.progress,'Возврат настроек этой незавершённой установки. Пользователи и ключи сохраняются для восстановления.')
             for ep in endpoints:
                 try:ep.shell('test ! -x /usr/local/sbin/ovpn-install-rollback || /usr/local/sbin/ovpn-install-rollback',quiet=True)

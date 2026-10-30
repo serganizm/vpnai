@@ -93,7 +93,7 @@ class VerificationRegression(unittest.TestCase):
    if action=='verify':
     self.assertEqual(job.status,'success',job.events);self.assertFalse(verify.call_args.kwargs['write_report'])
    else:
-    self.assertEqual(job.status,'error');verify.assert_not_called();self.assertIn('Восстановление сохраняет',job.events[-1]['message'])
+    self.assertEqual(job.status,'error');verify.assert_not_called();self.assertIn('конфигурация не найдена',job.events[-1]['message'])
    self.assertFalse(any(ep.writes for ep in endpoints));self.assertTrue(all(ep.closed for ep in endpoints));self.assertNotIn('private-ru',json.dumps(job.public()))
  def test_generated_verification_shell_syntax(self):
   if sys.platform=='win32':self.skipTest('Shell syntax is checked on Unix and in Linux CI')

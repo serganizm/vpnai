@@ -6,7 +6,7 @@ on:
       tag:
         description: 'Existing release tag'
         required: true
-        default: 'v0.1.16'
+        default: 'v0.2.1'
   push:
     tags:
       - 'v[0-9]*'
@@ -114,7 +114,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease \
+          gh release create "$RELEASE_TAG" --verify-tag --draft \
             --title "VPNAI $RELEASE_TAG — standalone" \
             --notes-file docs/RELEASE_NOTES.md build/release/*
           gh release edit "$RELEASE_TAG" --draft=false

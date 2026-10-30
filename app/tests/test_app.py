@@ -82,19 +82,21 @@ class Controller(unittest.TestCase):
     return '  gre: #1, reqid 1, INSTALLED, TRANSPORT' if 'swanctl --list-sas' in script else ''
    def python(self,code,data=None):
     self.python_calls.append((code,data))
+    if code==backend.UPDATE_PASSWORDS:return '{"generated":[]}'
+    if code==backend.engine.INITIAL_USER_IF_EMPTY:return json.dumps({'name':data,'created':True})
     if code==backend.INSPECT_MODES:return json.dumps({'profiles':[None,None],'list_classifier':False,'split_tools':False})
     if 'state.json' in code:return json.dumps(previous)
     if 'sysctl' in code:return '0'
     return ''
-  s=settings(demo=False,action='resume' if previous else 'install',update_packages=updates,ru={'host':'8.8.8.8','password':'secret-ru','fingerprint':'pin'},nl={'host':'9.9.9.9','password':'secret-nl','fingerprint':'pin'})
+  s=settings(demo=False,action='resume' if previous else 'install',update_revision='a'*64 if previous else '',update_packages=updates,ru={'host':'8.8.8.8','password':'secret-ru','fingerprint':'pin'},nl={'host':'9.9.9.9','password':'secret-nl','fingerprint':'pin'})
   job=backend.Job(s)
-  with patch.object(backend,'Remote',Fake),patch.object(backend.engine,'verify',return_value={'passed':True}),patch.object(backend,'collect',return_value=b'archive'):
+  with patch.object(backend,'Remote',Fake),patch.object(backend.engine,'verify',return_value={'passed':True}),patch.object(backend,'collect',return_value=b'archive'),patch.object(backend,'update_configuration',return_value={'revision':'a'*64,'user_count':0,'active_user_count':0}),patch.object(backend,'backup_update',return_value={}):
    job.run()
   self.assertEqual(job.status,'success',job.events)
   ru=endpoints[0];self.assertEqual(ru.files['/etc/ovpn-routing/force-ru.txt'],'\n');self.assertEqual(ru.files['/etc/ovpn-routing/extra-nl.txt'],'\n')
   self.assertTrue(json.loads(ru.files['/var/lib/ovpn-installer/state.json'])['complete'])
   self.assertNotIn('secret-ru',json.dumps(job.public()))
-  self.assertIn((backend.engine.INITIAL_USER,'tester'),ru.python_calls)
+  self.assertIn((backend.engine.INITIAL_USER_IF_EMPTY if previous else backend.engine.INITIAL_USER,'tester'),ru.python_calls)
   self.assertTrue(all(ep.closed for ep in endpoints))
   self.assertEqual(job.report['update_packages'],updates)
   for ep in endpoints:self.assertEqual(any('upgrade -y' in command for command in ep.commands),updates)
@@ -112,7 +114,7 @@ class Controller(unittest.TestCase):
    with self.assertRaises(backend.UserError):remote.connect()
    shell.assert_not_called()
   remote.close()
- def test_resume_creates_current_form_user_instead_of_saved_name(self):
+ def test_update_empty_database_creates_current_form_user(self):
   saved=backend.config(settings(initial_user='user1'));state={'version':2,'complete':False,'config':saved,'psk':'fixture-not-a-real-key'}
   self.install_pipeline(False,previous=state)
 

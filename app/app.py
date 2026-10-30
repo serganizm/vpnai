@@ -3,6 +3,9 @@
 import argparse,contextlib,json,pathlib,secrets,socket,threading,time,urllib.parse,webbrowser,sys
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 import backend
+import hashlib
+import ssh_aliases
+from admin_backend import AdminService
 from ssh_trust import TrustStore
 ROOT=pathlib.Path(__file__).resolve().parent
 
@@ -10,19 +13,53 @@ def local_platform():
     return 'windows' if sys.platform=='win32' else 'macos' if sys.platform=='darwin' else 'linux'
 
 class Application:
-    def __init__(self,trust_path=None):self.token=secrets.token_urlsafe(32);self.jobs={};self.lock=threading.RLock();self.trust=TrustStore(trust_path,persistent=trust_path is not None);self.stopping=False;self.session={}
+    def __init__(self,trust_path=None):self.token=secrets.token_urlsafe(32);self.jobs={};self.lock=threading.RLock();self.trust=TrustStore(trust_path,persistent=trust_path is not None);self.stopping=False;self.session={};self.install_signature=None;self.install_job_marker=None;self.admin=AdminService(self)
     def close(self):
         with self.lock:
-            self.session.clear();self.trust.clear()
+            self.install_signature=None;self.admin.close();self.admin.draft.clear();self.session.clear();self.trust.clear()
             for job in self.jobs.values():job.artifact=None;job.settings.clear()
             self.jobs.clear()
+    @staticmethod
+    def connection_signature(data):
+        defaults={'host':'','port':22,'user':'root','method':'password','password':'','key':'','key_path':'~/.ssh/id_ed25519','passphrase':''}
+        identity={}
+        for role in ('ru','nl'):
+            entry=dict(defaults,**{k:v for k,v in data.get(role,{}).items() if k in defaults})
+            try:entry['port']=int(entry['port'])
+            except (TypeError,ValueError):return None
+            identity[role]=entry
+        return hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
+    def installation_connected(self):
+        with self.lock:
+            if self.jobs:
+                latest=list(self.jobs.values())[-1]
+                marker=(id(latest),latest.status,getattr(latest,'ssh_connected',False) is True)
+                if marker!=self.install_job_marker:
+                    self.install_job_marker=marker
+                    if marker[2]:self.install_signature=getattr(latest,'connection_signature',None) if latest.status in ('running','success') else None
+            return self.install_signature is not None and self.install_signature==self.connection_signature(self.session)
+    def current_configuration(self,data):
+        settings=backend.validate(dict(data,action='check',restore_backup='',ru_routes='',eu_routes='',initial_user='user1',comment=''))
+        for role,pin in self.trust.trusted(settings).items():settings[role]['fingerprint']=pin
+        with self.lock:
+            if self.stopping or any(job.status=='running' for job in self.jobs.values()):raise backend.UserError('Дождитесь завершения текущей операции.')
+            self.install_signature=None
+            result=backend.read_update_configuration(settings)
+            nl=backend.Remote('nl',dict(settings['nl']))
+            try:nl.connect()
+            finally:nl.close()
+            self.install_signature=self.connection_signature(settings)
+            return result
     def list_backups(self,data):
         request=dict(data,action='resume',restore_backup='',ru_routes='',eu_routes='',initial_user='user1',comment='',routing='split',auth='password',vpn_port=1194)
         settings=backend.validate(request)
         for role,pin in self.trust.trusted(settings).items():settings[role]['fingerprint']=pin
         with self.lock:
             if self.stopping or any(job.status=='running' for job in self.jobs.values()):raise backend.UserError('Дождитесь завершения текущей операции.')
-        return backend.available_backups(settings)
+        self.install_signature=None
+        result=backend.available_backups(settings)
+        self.install_signature=self.connection_signature(settings)
+        return result
     def start(self,data):
         settings=backend.validate(data)
         for role,pin in self.trust.trusted(settings).items():settings[role]['fingerprint']=pin
@@ -32,7 +69,7 @@ class Application:
             # Expire credential-bearing archives in memory.
             for j in self.jobs.values():j.artifact=None
             self.session=backend.session_payload(data)
-            job=backend.Job(settings);self.jobs[job.id]=job
+            self.install_signature=None;job=backend.Job(settings);job.connection_signature=self.connection_signature(settings);self.jobs[job.id]=job
             while len(self.jobs)>20:self.jobs.pop(next(iter(self.jobs)))
             threading.Thread(target=job.run,name='vpn-operation',daemon=True).start();return job
 
@@ -73,10 +110,14 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/session':
             with self.server.application.lock:self.send(200,self.server.application.session)
             return
+        if path=='/api/ssh/aliases':
+            try:self.send(200,ssh_aliases.catalog())
+            except Exception:self.send(400,{'error':'Не удалось прочитать список SSH-алиасов.'})
+            return
         if path=='/api/info':
             try:backend.get_paramiko();ssh=True
             except backend.UserError:ssh=False
-            self.send(200,{'platform':local_platform(),'ssh_available':ssh,'standalone':bool(getattr(sys,'frozen',False)),'running':[j.id for j in self.server.application.jobs.values() if j.status=='running']});return
+            self.send(200,{'platform':local_platform(),'install_connected':self.server.application.installation_connected(),'ssh_available':ssh,'standalone':bool(getattr(sys,'frozen',False)),'running':[j.id for j in self.server.application.jobs.values() if j.status=='running']});return
         pieces=path.strip('/').split('/')
         if len(pieces) in (3,4) and pieces[:2]==['api','jobs']:
             job=self.server.application.jobs.get(pieces[2])
@@ -96,6 +137,21 @@ class Handler(BaseHTTPRequestHandler):
             if not 0<length<=1024*1024:raise backend.UserError('Некорректный размер запроса.')
             if self.headers.get_content_type()!='application/json':raise backend.UserError('Нужен JSON-запрос.')
             data=json.loads(self.rfile.read(length));path=urllib.parse.urlsplit(self.path).path
+            if path=='/api/ssh/alias':
+                if not isinstance(data,dict):raise backend.UserError('Ожидается объект.')
+                self.send(200,ssh_aliases.resolve_alias(data.get('alias')));return
+            if path.startswith('/api/admin/'):
+
+                operation=path[len('/api/admin/'):]
+                result=self.server.application.admin.dispatch(operation,data)
+                if operation=='profiles':
+                    import base64
+                    self.send(200,base64.b64decode(result['archive'],validate=True),'application/zip','openvpn-'+(data.get('name') or 'all')+'.zip')
+                else:self.send(200,result)
+                return
+            if path=='/api/update-config':
+                if not isinstance(data,dict):raise backend.UserError('Ожидается объект.')
+                self.send(200,self.server.application.current_configuration(data));return
             if path=='/api/backups':
                 self.send(200,{'backups':self.server.application.list_backups(data)});return
             if path=='/api/session':

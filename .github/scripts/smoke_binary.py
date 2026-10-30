@@ -44,6 +44,12 @@ with tempfile.TemporaryDirectory(prefix='vpnai-standalone-') as temp:
         assert json.loads(request('/api/session',session))['saved']
         assert json.loads(request('/api/session'))==session
         assert not json.loads(request('/api/info'))['running']
+        assert not json.loads(request('/api/admin/status',{}))['connected']
+        draft={'draft':session,'revision':1}
+        assert json.loads(request('/api/admin/save-connection-session',draft))['draft']==session
+        assert json.loads(request('/api/admin/connection-session',{}))['draft']==session
+        assert isinstance(json.loads(request('/api/ssh/aliases'))['aliases'],list)
+        assert not json.loads(request('/api/info'))['install_connected']
         assert b'id="demo"' not in request('/')
         request('/api/exit',{})
         process.wait(timeout=30)

@@ -356,15 +356,24 @@ def ensure_ipsec(ru):
     if not installed():raise InstallError('IPsec: команда завершилась, но туннель gre не установлен')
 
 
-def activate(c,ru,nl):
+def activate(c,ru,nl,create_only_if_empty=False):
     for ep in [nl,ru]:
         ep.shell('set -e\nsystemctl daemon-reload\nsystemctl enable --now ovpn-network.service ovpn-tcp-network.service\nsystemctl enable --now strongswan.service\nswanctl --load-all || { systemctl status strongswan --no-pager; journalctl -u strongswan -n 60 --no-pager; exit 1; }\n')
     ensure_ipsec(ru)
     ru.shell('set -e\nsystemctl enable --now openvpn-server@ru.service openvpn-server@ru-tcp.service ovpn-list-update.timer ovpn-crl-refresh.timer ovpn-links.service ovpn-links-cleanup.service ovpn-cert-renew.timer\n')
     if c.get('initial_user'):
-        output=ru.python(INITIAL_USER,c['initial_user'])
+        output=ru.python(INITIAL_USER_IF_EMPTY if create_only_if_empty else INITIAL_USER,c['initial_user'])
         return json.loads(output or '{}')
     return {}
+
+INITIAL_USER_IF_EMPTY=r'''import pathlib,subprocess,json
+path=pathlib.Path('/etc/openvpn/server/users.json')
+before=json.loads(path.read_text())
+result=subprocess.run(['ovpn-user','add',DATA,'--if-empty'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+if result.returncode:print('VPNAI_DIAG:INITIAL_USER');raise SystemExit(1)
+after=json.loads(path.read_text());created=DATA not in before and DATA in after
+print(json.dumps({'name':DATA if created else '', 'created':created,'skipped_existing':not created,'active':bool(after.get(DATA,{}).get('enabled'))}))
+'''
 
 INITIAL_USER=r'''import pathlib,subprocess,json
 users=json.loads(pathlib.Path('/etc/openvpn/server/users.json').read_text())

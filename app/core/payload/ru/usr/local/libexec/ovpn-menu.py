@@ -152,7 +152,7 @@ def password_menu():
 def user_menu():
  while True:
   space();heading('ПОЛЬЗОВАТЕЛИ')
-  for n,t in [(1,'Пользователи и подключения'),(2,'Новый пользователь'),(3,'Изменить/показать пароль'),(4,'Конфигурационные файлы'),(5,'Удалить пользователя'),(0,'Назад')]:option(n,t,n==5)
+  for n,t in [(1,'Пользователи и подключения'),(2,'Новый пользователь'),(3,'Изменить/показать пароль'),(4,'Изменить комментарий'),(5,'Конфигурационные файлы'),(6,'Удалить пользователя'),(0,'Назад')]:option(n,t,n==6)
   print();a=ask('Выберите действие: ').strip();space()
   if a in ('','0'):return
   if a=='1':listing(True)
@@ -163,8 +163,15 @@ def user_menu():
    comment=ask('Комментарий (Enter — без комментария): ').strip()
    if run('add',name,'--comment',comment):credentials(name)
   elif a=='3':password_menu();continue
-  elif a=='4':download_menu();continue
-  elif a=='5':
+  elif a=='4':
+   heading('ИЗМЕНЕНИЕ КОММЕНТАРИЯ');name=choose_user()
+   if name is None:continue
+   print(label('Текущий комментарий: ')+value(users().get(name,{}).get('comment','') or '—'))
+   comment=ask('Новый комментарий (Enter — очистить; [0] — отмена): ').strip()
+   if comment=='0':continue
+   run('comment',name,'--comment',comment)
+  elif a=='5':download_menu();continue
+  elif a=='6':
    heading('УДАЛЕНИЕ',red=True);name=choose_user()
    if name is None:continue
    if confirm_delete(name):run('delete',name)
