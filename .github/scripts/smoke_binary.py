@@ -15,7 +15,7 @@ with tempfile.TemporaryDirectory(prefix='vpnai-standalone-') as temp:
     if check.returncode:raise RuntimeError('Offline self-test failed: '+check.stdout+'\n'+check.stderr)
     result=json.loads(check.stdout.strip());assert result['standalone'] and result['ssh_available'] and result['native_crypto'] and result['core_files_verified']>20,result
     print('OFFLINE SELF-TEST:',json.dumps(result),flush=True)
-    process=subprocess.Popen([str(path),'--no-browser'],cwd=temp,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding='utf-8',errors='replace')
+    process=subprocess.Popen([str(path),'--no-browser','--port','0'],cwd=temp,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding='utf-8',errors='replace')
     lines=queue.Queue()
     def read():
         for line in process.stdout:lines.put(line)
@@ -37,18 +37,18 @@ with tempfile.TemporaryDirectory(prefix='vpnai-standalone-') as temp:
             with urllib.request.urlopen(urllib.request.Request(base.rstrip('/')+route,data,headers=h),timeout=15) as response:return response.read()
         info=json.loads(request('/api/info'));assert info['ssh_available'] and info['standalone'],info
         assert b'serverCards' in request('/')
-        assert request('/help') and request('/docs/STANDALONE.md')
-        job_id=json.loads(request('/api/jobs',{'demo':True,'action':'install'}))['id']
-        for _ in range(50):
-            job=json.loads(request('/api/jobs/'+job_id))
-            if job['status']!='running':break
-            time.sleep(.25)
-        assert job['status']=='success',job
-        archive=request('/api/jobs/'+job_id+'/download');assert archive[:2]==b'PK'
+        assert request('/help')==request('/docs/readme.md')
+        assert request('/readme.txt') and request('/docs/STANDALONE.md')
+        assert request('/static/logo.jpg').startswith(b'\xff\xd8')
+        session={'ru':{'host':'8.8.8.8','password':'offline-fixture'},'nl':{'host':'9.9.9.9','password':'offline-fixture'}}
+        assert json.loads(request('/api/session',session))['saved']
+        assert json.loads(request('/api/session'))==session
+        assert not json.loads(request('/api/info'))['running']
+        assert b'id="demo"' not in request('/')
         request('/api/exit',{})
         process.wait(timeout=30)
         assert process.returncode==0,process.returncode
-        print('PASS: standalone HTTP UI, bundled SSH, embedded docs, offline demo ZIP and clean exit',flush=True)
+        print('PASS: standalone HTTP UI, bundled SSH, embedded docs, in-memory session without SSH connections and clean exit',flush=True)
     finally:
         if process.poll() is None:
             if __import__('os').name=='nt':subprocess.run(['taskkill','/PID',str(process.pid),'/T','/F'],capture_output=True)

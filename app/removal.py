@@ -1,5 +1,5 @@
 """Remote removal phases. Data stays on the servers; no credentials in receipts."""
-COMMON=r'''import pathlib,json,shutil,os,sys,tarfile,datetime,subprocess,tempfile
+COMMON=r'''import pathlib,json,shutil,os,sys,tarfile,datetime,subprocess,tempfile,io,re
 P=pathlib.Path
 state=P('/var/lib/ovpn-installer');receipt=P('/var/lib/ovpn-installer-removal.json')
 role=DATA['role'];pair=DATA['pair']
@@ -47,19 +47,37 @@ PREFLIGHT=COMMON+r'''
 meta=validate();print(json.dumps({'already_removed':meta['already_removed'],'backup':meta.get('backup'),'finalize':meta.get('finalize',False)}))
 '''
 BACKUP=COMMON+r'''
-meta=validate()
-if meta['already_removed']:print(json.dumps({'backup':meta['backup']}));raise SystemExit(0)
-backup=P('/root')/('ovpn-backup-'+datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')+'.tar.gz')
+if DATA.get('force_snapshot') and DATA.get('allow_empty') and not (state/'owned.json').is_file():
+ if state.is_symlink() or receipt.is_symlink() or any(path.exists() for path in paths()[:-1]):fail('CLEAN_OWNER')
+ if receipt.exists():
+  try:old=json.loads(receipt.read_text())
+  except (OSError,ValueError):fail('CLEAN_OWNER')
+  if old.get('role')!=role or old.get('pair')!=pair or old.get('complete') is not True:fail('CLEAN_OWNER')
+ meta={'already_removed':True,'owned':{}}
+else:meta=validate()
+if meta['already_removed'] and not DATA.get('force_snapshot'):
+ print(json.dumps({'backup':meta['backup'],'configured':False}));raise SystemExit(0)
+snapshot=DATA.get('snapshot') or {'id':datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S-')+os.urandom(6).hex(),'created':datetime.datetime.now(datetime.timezone.utc).isoformat(),'pair':pair,'reason':'backup'}
+if not isinstance(snapshot,dict) or snapshot.get('pair')!=pair or not re.fullmatch(r'[0-9]{8}-[0-9]{6}-[a-f0-9]{12}',snapshot.get('id','')):fail('CLEAN_BACKUP')
+backup=P('/root')/('ovpn-backup-'+snapshot['id']+'.tar.gz')
+userlock=None
+if role=='ru' and os.name!='nt':
+ import fcntl
+ lockpath=P('/run/ovpn-user.lock');lockpath.parent.mkdir(parents=True,exist_ok=True)
+ userlock=lockpath.open('a');fcntl.flock(userlock,fcntl.LOCK_SH)
 try:
  fd=os.open(backup,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
  with os.fdopen(fd,'wb') as stream,tarfile.open(fileobj=stream,mode='w:gz') as archive:
-  seen=set()
-  for path in paths()+[P(name) for name in meta['owned']]:
-   if str(path) in seen or not path.exists():continue
-   seen.add(str(path));archive.add(path,arcname=str(path).lstrip('/'))
+  manifest=dict(snapshot,format=1,role=role,configured=not meta['already_removed'])
+  body=json.dumps(manifest).encode();entry=tarfile.TarInfo('vpnai-backup.json');entry.size=len(body);entry.mode=0o600;archive.addfile(entry,io.BytesIO(body))
+  seen=[]
+  for path in paths()+[receipt]+[P(name) for name in meta.get('owned',{})]:
+   if any(path==root or root in path.parents for root in seen) or not path.exists():continue
+   seen.append(path);archive.add(path,arcname=str(path).lstrip('/'))
  if not tarfile.is_tarfile(backup):fail('CLEAN_BACKUP')
 except (OSError,tarfile.TarError):fail('CLEAN_BACKUP')
-print(json.dumps({'backup':str(backup)}))
+if userlock:userlock.close()
+print(json.dumps({'backup':str(backup),'configured':not meta['already_removed']}))
 '''
 CLEAN=COMMON+r'''
 meta=validate()

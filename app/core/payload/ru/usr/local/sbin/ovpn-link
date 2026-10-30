@@ -31,7 +31,7 @@ with zipfile.ZipFile(buffer,'w',zipfile.ZIP_DEFLATED) as z:
    f=pathlib.Path('/root/ovpn-profiles')/(n+suffix)
    if not f.is_file():sys.exit('Missing profile or credentials for '+n)
    z.writestr(f.name,f.read_bytes())
-filename='IPSRU-all.zip' if cmd=='create-all' else 'IPSRU-'+name+'.zip'
+filename='openvpn-all.zip' if cmd=='create-all' else 'openvpn-'+name+'.zip'
 token=secrets.token_urlsafe(16);expires=int(time.time())+600
 p=root/(hashlib.sha256(token.encode()).hexdigest()+'.json')
 p.write_text(json.dumps({'usernames':selected,'expires':expires,'filename':filename,'archive':base64.b64encode(buffer.getvalue()).decode()}));os.chown(p,0,gid);p.chmod(0o640)

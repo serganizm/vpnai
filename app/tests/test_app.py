@@ -4,18 +4,21 @@ ROOT=pathlib.Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 import backend,app
 
 def settings(**kw):
- d={'demo':True,'initial_user':'tester','ru_routes':'','eu_routes':''};d.update(kw);return backend.validate(d)
+ d={'demo':False,'initial_user':'tester','ru_routes':'','eu_routes':'','ru':{'host':'8.8.8.8','password':'fixture-ru'},'nl':{'host':'9.9.9.9','password':'fixture-nl'}}
+ for role in ('ru','nl'):
+  if role in kw:d[role].update(kw.pop(role))
+ d.update(kw);return backend.validate(d)
 class Validation(unittest.TestCase):
- def test_defaults_empty_and_demo(self):
-  d=settings();self.assertTrue(d['demo']);self.assertEqual(d['ru_routes'],[]);self.assertEqual(d['eu_routes'],[])
+ def test_defaults_empty_and_real(self):
+  d=settings();self.assertFalse(d['demo']);self.assertEqual(d['ru_routes'],[]);self.assertEqual(d['eu_routes'],[])
  def test_real_requires_public_hosts_and_credentials(self):
-  for change in [{'demo':False},{'ru_routes':'192.168.1.1'},{'eu_routes':'0.0.0.0/0'},{'routing':'bad'},{'auth':'bad'},{'vpn_port':8765},{'initial_user':'x;command'},{'comment':'bad\x1b'}]:
+  for change in [{'demo':True},{'ru':{'host':''}},{'ru':{'password':''}},{'ru_routes':'192.168.1.1'},{'eu_routes':'0.0.0.0/0'},{'routing':'bad'},{'auth':'bad'},{'vpn_port':8765},{'initial_user':'x;command'},{'comment':'bad\x1b'}]:
    with self.subTest(change=change),self.assertRaises(backend.UserError):settings(**change)
  def test_normalizes_and_deduplicates(self):
   self.assertEqual(backend.cidrs('9.9.9.9\n9.9.9.9/32\n8.8.8.9/24 # example'),['8.8.8.0/24','9.9.9.9/32'])
  def test_destructive_confirmation(self):
   with self.assertRaises(backend.UserError):settings(action='remove')
-  self.assertEqual(settings(action='remove',confirmation='УДАЛИТЬ')['action'],'remove')
+  self.assertEqual(settings(action='remove',confirmed=True)['action'],'remove')
 class Templates(unittest.TestCase):
  def test_modes_compile_and_auth(self):
   for mode in backend.MODES:
@@ -43,33 +46,34 @@ class Templates(unittest.TestCase):
   for p in ROOT.rglob('*'):
    self.assertFalse(p.name.startswith('._') or p.name in ('.DS_Store','__MACOSX'))
  def test_cleanup_syntax(self):ast.parse(backend.CLEAN)
-class Demo(unittest.TestCase):
- def test_success_no_network_or_real_profiles(self):
+class JobLifecycle(unittest.TestCase):
+ def test_real_dispatch_and_secret_cleanup(self):
   job=backend.Job(settings(action='install'))
-  with patch.object(socket,'create_connection',side_effect=AssertionError('network forbidden')),patch.object(threading.Event,'wait',return_value=False):job.run()
-  self.assertEqual(job.status,'success');self.assertTrue(job.report['demo']);self.assertEqual(job.settings,{})
-  with zipfile.ZipFile(io.BytesIO(job.artifact)) as z:self.assertEqual(set(z.namelist()),{'DEMO-README.txt','plan.json'})
+  with patch.object(backend,'real_run') as run:job.run()
+  run.assert_called_once_with(job);self.assertEqual(job.status,'success');self.assertFalse(job.report['demo']);self.assertEqual(job.settings,{})
  def test_error_and_cancel(self):
-  job=backend.Job(settings(scenario='failure'))
-  with patch.object(threading.Event,'wait',return_value=False):job.run()
+  job=backend.Job(settings())
+  with patch.object(backend,'real_run',side_effect=backend.UserError('fixture error')):job.run()
   self.assertEqual(job.status,'error');self.assertIsNone(job.artifact)
-  job=backend.Job(settings());job.cancel.set();job.run();self.assertEqual(job.status,'cancelled')
+  job=backend.Job(settings());job.cancel.set()
+  with patch.object(backend,'real_run',side_effect=lambda j:j.checkpoint()):job.run()
+  self.assertEqual(job.status,'cancelled')
  def test_check_no_archive(self):
   job=backend.Job(settings(action='check'))
-  with patch.object(threading.Event,'wait',return_value=False):job.run()
+  with patch.object(backend,'real_run'):job.run()
   self.assertEqual(job.status,'success');self.assertIsNone(job.artifact)
 class Controller(unittest.TestCase):
  def test_real_install_pipeline_with_fake_servers_and_empty_lists(self):
   for updates in (False,True):
    with self.subTest(update_packages=updates):self.install_pipeline(updates)
- def install_pipeline(self,updates):
+ def install_pipeline(self,updates,previous=None):
   endpoints=[]
   class Fake:
-   def __init__(self,role,settings):self.role=role;self.settings=settings;self.files={};self.commands=[];self.closed=False;endpoints.append(self)
+   def __init__(self,role,settings):self.role=role;self.settings=settings;self.files={};self.commands=[];self.python_calls=[];self.closed=False;endpoints.append(self)
    def connect(self):pass
    def lock(self):pass
    def close(self):self.closed=True;self.settings.clear()
-   def inventory(self):return {'os':{'ID':'ubuntu','VERSION_ID':'24.04'},'addr':[{'addr_info':[{'family':'inet','local':'8.8.8.8' if self.role=='ru' else '9.9.9.9'}]}],'routes':[{'dst':'default','dev':'eth0'}],'routes6':[],'links':[],'rules':'','table':'','swan':'inactive','xfrm':'','sockets':'','managed':False,'reserved_files':[],'sysctl':{}}
+   def inventory(self):return {'os':{'ID':'ubuntu','VERSION_ID':'24.04'},'addr':[{'addr_info':[{'family':'inet','local':'8.8.8.8' if self.role=='ru' else '9.9.9.9'}]}],'routes':[{'dst':'default','dev':'eth0'}],'routes6':[],'links':[],'rules':'','table':'','swan':'inactive','xfrm':'','sockets':'','managed':bool(previous),'reserved_files':[],'sysctl':{}}
    def write(self,path,text,mode=0o600,preserve=False):
     if not preserve or path not in self.files:self.files[path]=text
    def shell(self,script,quiet=False):
@@ -77,10 +81,12 @@ class Controller(unittest.TestCase):
     if script==backend.SYSTEM_INFO:return 'ubuntu\n24.04\n3.12.3\n'
     return '  gre: #1, reqid 1, INSTALLED, TRANSPORT' if 'swanctl --list-sas' in script else ''
    def python(self,code,data=None):
-    if 'state.json' in code:return 'null'
+    self.python_calls.append((code,data))
+    if code==backend.INSPECT_MODES:return json.dumps({'profiles':[None,None],'list_classifier':False,'split_tools':False})
+    if 'state.json' in code:return json.dumps(previous)
     if 'sysctl' in code:return '0'
     return ''
-  s=settings(demo=False,action='install',update_packages=updates,ru={'host':'8.8.8.8','password':'secret-ru','fingerprint':'pin'},nl={'host':'9.9.9.9','password':'secret-nl','fingerprint':'pin'})
+  s=settings(demo=False,action='resume' if previous else 'install',update_packages=updates,ru={'host':'8.8.8.8','password':'secret-ru','fingerprint':'pin'},nl={'host':'9.9.9.9','password':'secret-nl','fingerprint':'pin'})
   job=backend.Job(s)
   with patch.object(backend,'Remote',Fake),patch.object(backend.engine,'verify',return_value={'passed':True}),patch.object(backend,'collect',return_value=b'archive'):
    job.run()
@@ -88,6 +94,7 @@ class Controller(unittest.TestCase):
   ru=endpoints[0];self.assertEqual(ru.files['/etc/ovpn-routing/force-ru.txt'],'\n');self.assertEqual(ru.files['/etc/ovpn-routing/extra-nl.txt'],'\n')
   self.assertTrue(json.loads(ru.files['/var/lib/ovpn-installer/state.json'])['complete'])
   self.assertNotIn('secret-ru',json.dumps(job.public()))
+  self.assertIn((backend.engine.INITIAL_USER,'tester'),ru.python_calls)
   self.assertTrue(all(ep.closed for ep in endpoints))
   self.assertEqual(job.report['update_packages'],updates)
   for ep in endpoints:self.assertEqual(any('upgrade -y' in command for command in ep.commands),updates)
@@ -105,6 +112,10 @@ class Controller(unittest.TestCase):
    with self.assertRaises(backend.UserError):remote.connect()
    shell.assert_not_called()
   remote.close()
+ def test_resume_creates_current_form_user_instead_of_saved_name(self):
+  saved=backend.config(settings(initial_user='user1'));state={'version':2,'complete':False,'config':saved,'psk':'fixture-not-a-real-key'}
+  self.install_pipeline(False,previous=state)
+
 class HTTP(unittest.TestCase):
  @classmethod
  def setUpClass(cls):
@@ -118,6 +129,9 @@ class HTTP(unittest.TestCase):
   c.request(method,path,data,h);r=c.getresponse();result=(r.status,r.read(),dict(r.headers));c.close();return result
  def test_embedded_help_and_docs_without_secrets(self):
   self.assertEqual(self.request('/help')[0],200)
+  root=pathlib.Path(app.__file__).resolve().parents[1]
+  self.assertEqual(self.request('/help')[1],(root/'docs/readme.md').read_bytes())
+  self.assertEqual(self.request('/readme.txt')[1],(root/'readme.txt').read_bytes())
   self.assertEqual(self.request('/docs/STANDALONE.md')[0],200)
   self.assertEqual(self.request('/docs/../../backend.py')[0],404)
   self.assertIn('standalone',json.loads(self.request('/api/info')[1]))
@@ -138,8 +152,12 @@ class HTTP(unittest.TestCase):
   self.assertEqual(self.request('/api/jobs','POST',{},headers={'Origin':'https://example.org'})[0],403)
   self.assertEqual(self.request('/api/info',headers={'Host':'example.org'})[0],403)
  def test_job_report_download_and_secret_absence(self):
-  data={'demo':True,'action':'install','ru':{'password':'must-not-leak'},'nl':{'password':'also-private'}}
-  with patch.object(threading.Event,'wait',return_value=False):
+  data={'action':'install','ru':{'host':'8.8.8.8','password':'must-not-leak'},'nl':{'host':'9.9.9.9','password':'also-private'}}
+  def execute(job):
+   buf=io.BytesIO()
+   with zipfile.ZipFile(buf,'w') as archive:archive.writestr('fixture.txt','test-only archive')
+   job.artifact=buf.getvalue();job.expires=time.time()+600
+  with patch.object(backend,'real_run',side_effect=execute),patch.object(self.application.trust,'trusted',return_value={'ru':'pin','nl':'pin'}):
    code,body,_=self.request('/api/jobs','POST',data);self.assertEqual(code,202);job_id=json.loads(body)['id']
    for _ in range(100):
     job=self.application.jobs[job_id]
@@ -210,11 +228,10 @@ class OptionalUpdates(unittest.TestCase):
   self.assertTrue(settings(update_packages=True)['update_packages'])
   for invalid in ('false','yes',1,None):
    with self.assertRaises(backend.UserError):settings(update_packages=invalid)
- def test_demo_reports_selection(self):
+ def test_real_job_reports_selection(self):
   for updates in (False,True):
    job=backend.Job(settings(action='install',update_packages=updates))
-   with patch.object(threading.Event,'wait',return_value=False):job.run()
+   with patch.object(backend,'real_run'):job.run()
    self.assertEqual(job.status,'success');self.assertEqual(job.report['update_packages'],updates)
-   self.assertTrue(any(('ОС включено' if updates else 'ОС пропущено') in e['message'] for e in job.events))
 
 if __name__=='__main__':unittest.main()

@@ -282,7 +282,7 @@ def prepare_download(names,all_users=False):
   selected=current if all_users else [n for n in names if n in current]
   if not selected:raise ValueError('Нет доступных профилей для скачивания.')
   if any(not re.fullmatch('[a-zA-Z0-9_-]{1,48}',n) for n in selected):raise ValueError('Недопустимое имя профиля.')
-  filename='IPSRU-all.zip' if all_users else 'IPSRU-'+selected[0]+'.zip'
+  filename='openvpn-all.zip' if all_users else 'openvpn-'+selected[0]+'.zip'
   target=folder/filename
   fd,tmp=tempfile.mkstemp(prefix='.export-',dir=folder);os.close(fd)
   try:
@@ -298,15 +298,14 @@ def prepare_download(names,all_users=False):
  return target,len(selected)
 def download_link_menu(selected,all_users=False):
  import datetime
- from zoneinfo import ZoneInfo
  space();heading('СКАЧАТЬ ПО ССЫЛКЕ')
  args=['/usr/local/sbin/ovpn-link','create-all'] if all_users else ['/usr/local/sbin/ovpn-link','create',selected[0]]
  r=subprocess.run(args,capture_output=True,text=True)
  if r.returncode:print(danger('Не удалось создать ссылку: ')+value(r.stderr.strip()));pause();return
  data=json.loads(r.stdout);space();heading('ССЫЛКА ГОТОВА')
  print(label('Пользователей в архиве: ')+number(data['count']))
- expiry=datetime.datetime.fromtimestamp(data['expires'],ZoneInfo('Europe/Moscow')).strftime('%H:%M:%S')
- print(label('Действует 10 минут, до ')+number(expiry)+label(' МСК.'))
+ expiry=datetime.datetime.fromtimestamp(data['expires']).astimezone().strftime('%H:%M:%S %Z')
+ print(label('Действует 10 минут, до ')+number(expiry)+label('.'))
  print(muted('Можно скачивать несколько раз на разные устройства до истечения срока.'))
  print(muted('ZIP содержит .ovpn и файл с логином и паролем.'));print()
  print(value(data['url']));print()

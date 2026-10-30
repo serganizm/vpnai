@@ -362,13 +362,30 @@ def activate(c,ru,nl):
     ensure_ipsec(ru)
     ru.shell('set -e\nsystemctl enable --now openvpn-server@ru.service openvpn-server@ru-tcp.service ovpn-list-update.timer ovpn-crl-refresh.timer ovpn-links.service ovpn-links-cleanup.service ovpn-cert-renew.timer\n')
     if c.get('initial_user'):
-        name=c['initial_user']
-        ru.python('''import pathlib,subprocess
+        output=ru.python(INITIAL_USER,c['initial_user'])
+        return json.loads(output or '{}')
+    return {}
+
+INITIAL_USER=r'''import pathlib,subprocess,json
 users=json.loads(pathlib.Path('/etc/openvpn/server/users.json').read_text())
-if DATA not in users:subprocess.run(['ovpn-user','add',DATA],check=True)
-''',name)
+record=users.get(DATA)
+created=record is None
+if created:
+ result=subprocess.run(['ovpn-user','add',DATA],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ if result.returncode:print('VPNAI_DIAG:INITIAL_USER');raise SystemExit(1)
+else:
+ if not record.get('enabled') or record.get('deleted'):
+  print('VPNAI_DIAG:INITIAL_USER_DISABLED');raise SystemExit(1)
+users=json.loads(pathlib.Path('/etc/openvpn/server/users.json').read_text())
+if not users.get(DATA,{}).get('enabled') or users[DATA].get('deleted'):
+ print('VPNAI_DIAG:INITIAL_USER');raise SystemExit(1)
+print(json.dumps({'name':DATA,'created':created,'active':True}))
+'''
 
 DIAGNOSTICS={
+ 'BACKUP_INVALID':'архив повреждён, изменился, неполон или содержит неподдерживаемые пути; восстановление остановлено',
+ 'INITIAL_USER':'выбранный пользователь не создан или его UDP/TCP-профили отсутствуют',
+ 'INITIAL_USER_DISABLED':'выбранный логин отключён или удалён; укажите новый логин либо включите пользователя через меню',
  'CLEAN_OWNER':'не найдены или повреждены данные владельца установки; удаление остановлено',
  'CLEAN_ROLE':'роль сервера не совпадает с сохранённой установкой',
  'CLEAN_PATH':'обнаружена неожиданная ссылка или небезопасный путь; удаление остановлено',

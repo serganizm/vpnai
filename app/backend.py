@@ -22,9 +22,9 @@ def cidrs(text):
 
 def validate(data):
     if not isinstance(data,dict):raise UserError('Ожидается объект настроек.')
-    demo=data.get('demo',True)
-    if not isinstance(demo,bool):raise UserError('Некорректный режим.')
-    clean={'demo':demo,'action':data.get('action','check'),'routing':data.get('routing','split'),'auth':data.get('auth','password')}
+    if data.get('demo',False) is not False:raise UserError('Доступна только работа с реальными серверами.')
+    demo=False
+    clean={'demo':False,'action':data.get('action','check'),'routing':data.get('routing','split'),'auth':data.get('auth','password')}
     clean['update_packages']=data.get('update_packages',False)
     if not isinstance(clean['update_packages'],bool):raise UserError('Обновление пакетов: выберите Да или Нет.')
     if clean['action'] not in ACTIONS or clean['routing'] not in MODES or clean['auth'] not in AUTH:raise UserError('Неизвестный вариант настройки.')
@@ -35,8 +35,6 @@ def validate(data):
     try:clean['vpn_port']=int(data.get('vpn_port',1194))
     except (ValueError,TypeError):raise UserError('Неверный порт OpenVPN.')
     if not 1024<=clean['vpn_port']<=65535 or clean['vpn_port'] in (4500,8765):raise UserError('Выберите порт OpenVPN 1024–65535, кроме 4500 и 8765.')
-    clean['scenario']=data.get('scenario','success')
-    if clean['scenario'] not in ('success','failure','existing'):raise UserError('Неверный сценарий демонстрации.')
     for role in ('ru','nl'):
         s=data.get(role,{})
         if not isinstance(s,dict):raise UserError('Некорректные данные сервера.')
@@ -60,8 +58,30 @@ def validate(data):
     if clean['ru']['host']==clean['nl']['host']:raise UserError('У серверов должны быть разные IP.')
     for item in clean['eu_routes']:
         if any(ipaddress.ip_address(clean[r]['host']) in ipaddress.ip_network(item) for r in ('ru','nl')):raise UserError('Список RU-EU не должен включать адреса самих серверов.')
-    if clean['action'] in ('remove','fresh') and data.get('confirmation')!='УДАЛИТЬ':raise UserError('Для этого действия введите УДАЛИТЬ.')
+    backup=data.get('restore_backup','')
+    if not isinstance(backup,str) or (backup and not re.fullmatch(r'ovpn-backup-[0-9]{8}-[0-9]{6}-[a-f0-9]{12}\.tar\.gz',backup)):raise UserError('Некорректное имя резервного архива.')
+    if backup and clean['action']!='resume':raise UserError('Выбор архива доступен только для восстановления.')
+    clean['restore_backup']=backup
+    if (clean['action'] in ('remove','fresh') or backup) and data.get('confirmed') is not True:raise UserError('Подтвердите выбранное удаление флажком «Я подтверждаю».')
     return clean
+
+
+def session_payload(data):
+    if not isinstance(data,dict):raise UserError('Некорректные данные текущего сеанса.')
+    result={}
+    fields=('action','routing','auth','initial_user','comment','vpn_port','update_packages','ru_routes','eu_routes')
+    server_fields=('host','port','user','method','password','key','key_path','passphrase')
+    def copy_value(value):
+        if isinstance(value,str) and len(value)<=150000:return value
+        if type(value) in (int,bool):return value
+        raise UserError('Некорректное поле текущего сеанса.')
+    for key in fields:
+        if key in data:result[key]=copy_value(data[key])
+    for role in ('ru','nl'):
+        if role not in data:continue
+        if not isinstance(data[role],dict):raise UserError('Некорректные данные сервера.')
+        result[role]={key:copy_value(value) for key,value in data[role].items() if key in server_fields}
+    return result
 
 
 INSPECT_MODES = r"""import pathlib,json
@@ -240,20 +260,25 @@ engine.render=render
 
 from removal import CLEAN, PREFLIGHT as CLEAN_PREFLIGHT, BACKUP as CLEAN_BACKUP
 
-def remove_installation(job,c,ru,nl):
+def remove_installation(job,c,ru,nl,prepared=None):
+    import backups
+    snapshot=backups.snapshot({k:c[k] for k in ('ru_ip','nl_ip')},'before-removal')
     pair={k:c[k] for k in ('ru_ip','nl_ip')};report={};job.report['removal']=report
     endpoints=(nl,ru)
     for ep in endpoints:
         job.checkpoint();role=ep.role
         job.event('Проверка удаления',12,'Проверка данных владельца и готовности: '+('зарубежный' if role=='nl' else 'российский')+' сервер.')
-        try:report[role]=json.loads(ep.python(CLEAN_PREFLIGHT,{'role':role,'pair':pair}))
+        try:
+            if prepared and not prepared[role]['configured']:report[role]={'already_removed':True,'finalize':False}
+            else:report[role]=json.loads(ep.python(CLEAN_PREFLIGHT,{'role':role,'pair':pair}))
         except UserError as e:raise UserError('Проверка перед удалением: '+str(e)) from None
     # Both backups must finish before any service is stopped on either host.
     for ep in endpoints:
         job.checkpoint();role=ep.role;meta=report[role]
-        if meta['already_removed']:continue
+        if prepared:
+            meta['backup']=prepared[role]['backup'];continue
         job.event('Резервная копия',15,'Создание закрытого архива перед удалением: '+('зарубежный' if role=='nl' else 'российский')+' сервер.')
-        try:meta['backup']=json.loads(ep.python(CLEAN_BACKUP,{'role':role,'pair':pair}))['backup']
+        try:meta['backup']=json.loads(ep.python(CLEAN_BACKUP,{'role':role,'pair':pair,'snapshot':snapshot,'force_snapshot':True,'allow_empty':True}))['backup']
         except UserError as e:raise UserError('Резервное копирование перед удалением: '+str(e)) from None
     for index,ep in enumerate(endpoints):
         job.checkpoint();role=ep.role;meta=report[role]
@@ -262,6 +287,73 @@ def remove_installation(job,c,ru,nl):
         try:ep.python(CLEAN,{'role':role,'pair':pair,'backup':meta['backup'],'rollback':engine.ROLLBACK})
         except UserError as e:raise UserError('Удаление: '+str(e)+' Уже завершённые этапы указаны в отчёте; повторный запуск учитывает частичное удаление.') from None
         meta['complete']=True
+
+
+def available_backups(settings):
+    import backups
+    endpoints=[]
+    try:
+        for role in ('ru','nl'):
+            ep=Remote(role,dict(settings[role]));endpoints.append(ep);ep.connect()
+        pair={role+'_ip':settings[role]['host'] for role in ('ru','nl')}
+        rows=[json.loads(backups.remote(ep,pair,'list')) for ep in endpoints]
+        return backups.catalogue(*rows)
+    finally:
+        for ep in endpoints:ep.close()
+
+def restore_archive(job,s,c,ru,nl,inv):
+    import backups
+    pair={k:c[k] for k in ('ru_ip','nl_ip')};stages={};guards={};changed=False
+    try:
+        job.event('Архивы',10,'Проверка выбранного архива на российском сервере и его пары на зарубежном.')
+        ru_info,nl_info=backups.find_pair(ru,nl,pair,s['restore_backup'])
+        info={ru.role:ru_info,nl.role:nl_info}
+        private=json.loads(backups.remote(ru,pair,'inspect',name=ru_info['name']))
+        state=private['state'];saved=dict(state['config'])
+        engine.validate(saved)
+        # Never let saved host aliases or SSH parameters replace current authenticated connections.
+        saved['nl_host']='root@'+pair['nl_ip'];saved['ssh_port']=s['nl']['port'];saved['ssh_key']=None
+        saved['initial_user']=s['initial_user'];saved['https_relay']=True
+        for ep in (ru,nl):
+            if not inv[ep.role]['managed']:
+                class ReadOnly:
+                    role=ep.role
+                    python=ep.python
+                    def write(self,*args,**kwargs):pass
+                engine.preflight(saved,ReadOnly(),inv[ep.role],False)
+        for ep in (ru,nl):
+            job.checkpoint();token=secrets.token_hex(12);meta=info[ep.role]
+            prepared=json.loads(backups.remote(ep,pair,'stage',name=meta['name'],sha256=meta['sha256'],stage=token))
+            stages[ep.role]=token
+        safety=backups.snapshot(pair,'before-archive-restore')
+        job.event('Резервная копия',15,'Сохранение текущего состояния обоих серверов под общим именем.')
+        for ep in (ru,nl):
+            job.checkpoint();guards[ep.role]=json.loads(ep.python(CLEAN_BACKUP,{'role':ep.role,'pair':pair,'snapshot':safety,'force_snapshot':True,'allow_empty':True}))
+        job.report['archive_restore']={'ru_archive':ru_info['name'],'foreign_archive':nl_info['name'],'safety_backups':{k:v['backup'] for k,v in guards.items()}}
+        job.checkpoint();changed=True
+        remove_installation(job,saved,ru,nl,prepared=guards)
+        fresh={ep.role:ep.inventory() for ep in (ru,nl)}
+        for ep in (ru,nl):
+            engine.preflight(saved,ep,fresh[ep.role],False)
+            ep.write('/var/lib/ovpn-installer/role',ep.role+'\n')
+        state=dict(state,version=2,complete=False,config=saved)
+        ru.write('/var/lib/ovpn-installer/state.json',json.dumps(state))
+        for ep in (ru,nl):
+            job.event('Восстановление',35,'Восстановление проверенных данных: '+('российский' if ep.role=='ru' else 'зарубежный')+' сервер.')
+            backups.remote(ep,pair,'apply',stage=stages[ep.role],sha256=info[ep.role]['sha256'])
+        job.report['archive_restore']['data_restored']=True
+        return saved
+    except backups.BackupError as error:raise UserError(str(error)) from None
+    except BaseException:
+        if changed:
+            job.report['archive_restore_error']='Операция не завершена; данные исходной конфигурации сохранены в защитных архивах на обоих серверах.'
+            for ep in (ru,nl):
+                with contextlib.suppress(Exception):ep.shell(engine.ROLLBACK,quiet=True)
+        raise
+    finally:
+        for ep in (ru,nl):
+            if ep.role in stages:
+                with contextlib.suppress(Exception):backups.remote(ep,pair,'discard',stage=stages[ep.role])
 
 
 class Job:
@@ -275,8 +367,7 @@ class Job:
         with self.lock:return {'id':self.id,'status':self.status,'phase':self.phase,'progress':self.progress,'events':list(self.events),'report':self.report,'download':bool(self.artifact and time.time()<self.expires),'demo':self.demo}
     def run(self):
         try:
-            if self.settings['demo']:demo_run(self)
-            else:real_run(self)
+            real_run(self)
             with self.lock:self.status='success';self.progress=100
         except Cancelled as e:
             self.event('Остановлено',self.progress,str(e));self.status='cancelled'
@@ -285,25 +376,6 @@ class Job:
             self.event('Ошибка',self.progress,message);self.status='error'
         finally:
             self.settings.clear()
-
-def demo_run(job):
-    s=job.settings;job.report={'demo':True,'action':s['action'],'routing':s['routing'],'auth':s['auth'],'update_packages':s['update_packages'],'initial_user':s['initial_user'],'servers':{'ru':s['ru']['host'],'nl':s['nl']['host']},'lists':{'ru':s['ru_routes'],'eu':s['eu_routes']},'notice':'Это симуляция. SSH-соединения не создавались, файлы на серверах не менялись.'}
-    steps=[('Проверка серверов','Показан пример проверки Ubuntu, SSH и свободных портов.'),('Проверка установки','Найдена демонстрационная установка.' if s['scenario']=='existing' else 'Пример: серверы готовы к новой установке.'),('Подготовка файлов','Режимы и ручные списки собраны из формы.'),('Установка компонентов','Имитация проверки/установки Python 3 и VPN-пакетов. '+('Общее обновление ОС включено.' if s['update_packages'] else 'Общее обновление ОС пропущено по выбору.')),('Настройка туннеля','Имитация проверки защищённого канала между серверами.'),('OpenVPN UDP и TCP','Имитация запуска двух служб.'),('Проверка маршрутов','Имитация проверки выбранных выходов.'),('Результат','Демонстрация завершена. Реальный VPN не устанавливался.')]
-    if s['action']=='check':steps=steps[:2]+[steps[-1]]
-    elif s['action']=='verify':steps=steps[:2]+steps[-2:]
-    elif s['action']=='remove':steps=steps[:2]+[('Удаление','Имитация резервного копирования и удаления своей установки.'),steps[-1]]
-    for i,(phase,msg) in enumerate(steps):
-        job.checkpoint();job.event(phase,int(i/len(steps)*95),msg)
-        if s['scenario']=='existing' and s['action']=='install' and i==1:raise UserError('Найдена демонстрационная установка. Выберите восстановление или установку заново.')
-        for _ in range(8):
-            if job.cancel.wait(.09):job.checkpoint()
-        if s['scenario']=='failure' and i==len(steps)//2:raise UserError('Демонстрационная ошибка: выбран пример недоступного сервера. Настоящих подключений не было.')
-    if s['action'] not in ('check','remove'):
-        buffer=io.BytesIO()
-        with zipfile.ZipFile(buffer,'w',zipfile.ZIP_DEFLATED) as z:
-            z.writestr('DEMO-README.txt','Демонстрационный архив. Здесь нет действующих сертификатов, ключей или VPN-профилей.\n')
-            z.writestr('plan.json',json.dumps(job.report,ensure_ascii=False,indent=2))
-        job.artifact=buffer.getvalue();job.expires=time.time()+600
 
 def config(s):
     return {'ru_ip':s['ru']['host'],'nl_ip':s['nl']['host'],'nl_host':'root@'+s['nl']['host'],'ssh_port':s['nl']['port'],'ssh_key':None,'initial_user':s['initial_user'],'vpn_net':'10.77.0.0/24','tcp_net':'10.79.0.0/24','gre_net':'10.78.0.0/30','ovpn_port':s['vpn_port'],'source_url':'https://iplist.opencck.org/?format=json&data=cidr4','routing_mode':s['routing'],'auth_mode':s['auth']}
@@ -347,9 +419,14 @@ def real_run(job):
         previous=json.loads(ru.python("import pathlib; p=pathlib.Path('/var/lib/ovpn-installer/state.json'); print(p.read_text() if p.exists() else 'null')"))
         job.report={'demo':False,'action':s['action'],'servers':{r:s[r]['host'] for r in ('ru','nl')},'existing':{r:inv[r]['managed'] for r in ('ru','nl')},'os':{r:inv[r]['os'] for r in ('ru','nl')},'routing':s['routing'],'auth':s['auth'],'update_packages':s['update_packages'],'initial_user':s['initial_user'],'lists':{'ru':s['ru_routes'],'eu':s['eu_routes']},'system':system,'checks':[]}
         if previous and any(previous['config'].get(k)!=c[k] for k in ('ru_ip','nl_ip')):raise UserError('Сохранённая установка относится к другой паре серверов.')
+        if s['action']=='resume' and s.get('restore_backup'):
+            c=restore_archive(job,s,c,ru,nl,inv);mutated=True
+            inv={ep.role:ep.inventory() for ep in endpoints}
+            previous=json.loads(ru.python("import pathlib; print(pathlib.Path('/var/lib/ovpn-installer/state.json').read_text())"))
+            job.report['routing']=c['routing_mode'];job.report['auth']=c['auth_mode']
         detected=None
         if previous and s['action'] in ('check','verify','resume'):
-            job.event('Режим сервера',9,'Чтение фактических настроек OpenVPN: выбранный в форме режим не применяется при проверке.')
+            job.event('Режим сервера',9,'Чтение настроенных режимов OpenVPN.')
             detected=installed_modes(ru,previous,allow_incomplete=s['action']=='resume')
             job.report['installed']=detected;job.report['requested_routing']=s['routing'];job.report['requested_auth']=s['auth']
             job.report['routing']=detected['routing'];job.report['auth']=detected['auth'];job.report['lists_from_server']=True
@@ -383,6 +460,7 @@ def real_run(job):
                 saved['routing_mode']=detected['routing'];saved['auth_mode']=detected['auth']
             if s['action']=='resume' and (saved.get('routing_mode','split')!=c['routing_mode'] or saved.get('auth_mode','password')!=c['auth_mode']):raise UserError('Восстановление сохраняет режим маршрутизации и авторизации. Выберите сохранённые режимы либо установку заново.')
             c=dict(saved);c.setdefault('routing_mode','split');c.setdefault('auth_mode','password')
+            if s['action']=='resume':c['initial_user']=s['initial_user']
             job.report['routing']=c['routing_mode'];job.report['auth']=c['auth_mode']
         if s['action']=='verify':
             job.event('Проверка VPN',45,'Проверка служб, HTTPS и реальных выходов из серверных тестовых сетей.')
@@ -406,7 +484,7 @@ def real_run(job):
                 system[ep.role]['reboot_required']=ep.shell("if test -f /var/run/reboot-required; then printf yes; else printf no; fi",quiet=True).strip()=='yes'
             job.checkpoint();job.event('Установка компонентов',22 if ep.role=='nl' else 35,'Установка пакетов и файлов: '+('зарубежный' if ep.role=='nl' else 'российский')+' сервер.')
             engine.install_packages(ep);engine.deploy(c,ep,state['psk'])
-        job.checkpoint();job.event('Пользователи и списки',46,'Создание PKI и файлов списков. Личные адреса из прежних проектов не используются.')
+        job.checkpoint();job.event('Пользователи и списки',46,'Создание PKI и применение выбранных списков маршрутов.')
         # Preserve existing lists on resume. Fresh installations receive only user-entered addresses.
         ru.write('/etc/ovpn-routing/force-ru.txt','\n'.join(s['ru_routes'])+'\n',preserve=True)
         ru.write('/etc/ovpn-routing/extra-nl.txt','\n'.join(s['eu_routes'])+'\n',preserve=True)
@@ -419,7 +497,7 @@ def real_run(job):
             warning='Рабочий сертификат сохранён, но Let’s Encrypt сейчас недоступен. Автопродление повторит проверку каждый час; проверьте журнал ovpn-cert-renew.'
             job.report.setdefault('warnings',[]).append(warning);job.event('Предупреждение HTTPS',65,warning)
         job.checkpoint();job.event('Запуск VPN',75,'Защищённый туннель и OpenVPN UDP/TCP.')
-        engine.activate(c,ru,nl)
+        job.report['initial_user_result']=engine.activate(c,ru,nl)
         # Apply comment and regenerate all profiles according to the selected auth mode.
         ru.python(r'''import pathlib,subprocess,fcntl
 with open('/run/ovpn-user.lock','a') as lock:
@@ -428,6 +506,10 @@ with open('/run/ovpn-user.lock','a') as lock:
  if DATA['name'] in users and not DATA['preserve']:users[DATA['name']]['comment']=DATA['comment'];p.write_text(json.dumps(users,ensure_ascii=False,indent=2))
 for name,record in users.items():
  if record.get('enabled') and not record.get('deleted'):subprocess.run(['ovpn-user','profiles',name],check=True,stdout=subprocess.DEVNULL)
+record=users.get(DATA['name'],{})
+folder=pathlib.Path('/root/ovpn-profiles')
+if not record.get('enabled') or record.get('deleted') or not all((folder/(DATA['name']+suffix)).is_file() for suffix in ('-UDP.ovpn','-TCP.ovpn')):
+ print('VPNAI_DIAG:INITIAL_USER');raise SystemExit(1)
 ''',{'name':s['initial_user'],'comment':s['comment'],'preserve':bool(previous)})
         ru.shell('set -e\nsystemctl restart openvpn-server@ru openvpn-server@ru-tcp\n')
         job.checkpoint();job.event('Проверка VPN',88,'Проверка служб, HTTPS и двух выходов через изолированные тестовые сети.')

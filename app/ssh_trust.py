@@ -4,10 +4,14 @@ from backend import UserError
 PIN=re.compile(r'SHA256:[A-Za-z0-9+/]{43}')
 
 class TrustStore:
-    def __init__(self,path=None):
-        self.path=pathlib.Path(path) if path else pathlib.Path.home()/'.vpnai'/'ssh-hosts.json'
+    def __init__(self,path=None,persistent=True):
+        self.path=(pathlib.Path(path) if path else pathlib.Path.home()/'.vpnai'/'ssh-hosts.json') if persistent else None
+        self.memory={}
         self.lock=threading.RLock();self.pending={}
+    def clear(self):
+        with self.lock:self.memory.clear();self.pending.clear()
     def read(self):
+        if self.path is None:return dict(self.memory)
         if not self.path.exists():return {}
         try:
             data=json.loads(self.path.read_text(encoding='utf-8'))
@@ -52,6 +56,9 @@ class TrustStore:
                 identity=self.identity(server);old=known.get(identity)
                 if old and not secrets.compare_digest(old,server['fingerprint']):raise UserError('SSH-ключ уже изменён в базе доверия. Подключение остановлено.')
                 known[identity]=server['fingerprint']
+            if self.path is None:
+                self.memory=dict(known)
+                return {'fingerprints':{s['role']:s['fingerprint'] for s in candidate['servers']}}
             temp=None
             try:
                 self.path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
