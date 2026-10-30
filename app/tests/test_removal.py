@@ -93,6 +93,15 @@ class RemovalSandbox(unittest.TestCase):
   with self.assertRaises(SystemExit):self.clean(str(self.P('/root/ovpn-backup-invalid.tar.gz')))
   self.assertFalse(self.calls);self.assertTrue(self.P('/etc/openvpn/server/pki/client.key').is_file())
 
+ def test_ipsec_timeout_does_not_block_cleanup(self):
+  original=self.runner
+  def runner(args,**kwargs):
+   if args[0]=='swanctl' and '--terminate' in args:
+    self.assertEqual(kwargs['timeout'],20);raise subprocess.TimeoutExpired(args,20)
+   return original(args,**kwargs)
+  self.fixture('nl');self.runner=runner;backup=self.backup();self.clean(backup)
+  self.assertFalse(self.P('/var/lib/ovpn-installer').exists())
+
 class RemovalPhases(unittest.TestCase):
  def make(self,fail=None,removed_nl=False):
   events=[];job=types.SimpleNamespace(report={},checkpoint=lambda:None,event=lambda *a:events.append(('event',a)))

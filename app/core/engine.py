@@ -110,6 +110,27 @@ def check_templates(c):
             count+=1
     print('Шаблоны проверены: %d файлов; подключений к серверам и изменений не было.'%count)
 
+NGINX_REUSE_PROBE=r'''import pathlib,json,subprocess,re
+p=pathlib.Path
+ok=False
+try:
+ receipt=json.loads(p('/var/lib/ovpn-installer-removal.json').read_text())
+ pair={k:DATA[k] for k in ('ru_ip','nl_ip')}
+ sites=list(p('/etc/nginx/sites-enabled').iterdir())
+ stock=all(x.name=='default' and x.resolve()==p('/etc/nginx/sites-available/default') for x in sites)
+ stock=stock and not list(p('/etc/nginx/conf.d').glob('*.conf'))
+ sockets=subprocess.run(['ss','-Hltnp','sport = :80'],capture_output=True,text=True,timeout=10)
+ listeners=sockets.stdout.splitlines()
+ nginx_only=sockets.returncode==0 and bool(listeners) and all(re.findall(r'\("([^"]+)"',line) and set(re.findall(r'\("([^"]+)"',line))=={'nginx'} for line in listeners)
+ config=subprocess.run(['nginx','-T'],capture_output=True,text=True,timeout=10)
+ clean='\n'.join(line.split('#',1)[0] for line in config.stdout.splitlines())
+ names=re.findall(r'\bserver_name\s+([^;]+);',clean)
+ default_names=all(set(name.split())<={'_', '""'} for name in names)
+ ok=receipt.get('complete') is True and receipt.get('role')=='ru' and receipt.get('pair')==pair and stock and nginx_only and config.returncode==0 and default_names
+except (OSError,ValueError,subprocess.TimeoutExpired):pass
+print(json.dumps(bool(ok)))
+'''
+
 def preflight(c,ep,inv,resume):
     osr=inv['os'];supported=(osr.get('ID')=='ubuntu' and osr.get('VERSION_ID') in ('24.04','26.04')) or (osr.get('ID')=='debian' and osr.get('VERSION_ID') in ('12','13'))
     if not supported:raise InstallError(ep.role+': поддерживаются Ubuntu 24.04/26.04, Debian 12/13')
@@ -137,10 +158,14 @@ def preflight(c,ep,inv,resume):
             if any(x['ifname']==name for x in inv['links']):raise InstallError(ep.role+': интерфейс '+name+' уже используется')
         if inv['table'] or '10310:' in inv['rules']:raise InstallError(ep.role+': таблица 310 или правило 10310 уже используется')
         if inv['swan']=='active' or 'proto esp' in inv['xfrm']:raise InstallError(ep.role+': уже существует IPsec. Установщик не изменяет чужой strongSwan')
+        reuse_nginx=None
         for line in inv['sockets'].splitlines():
             port=re.search(r':(\d+)\s',line)
             if not port:continue
             n=int(port[1]);proto=line.split()[0]
+            if ep.role=='ru' and proto.startswith('tcp') and n==80:
+                if reuse_nginx is None:reuse_nginx=json.loads(ep.python(NGINX_REUSE_PROBE,{k:c[k] for k in ('ru_ip','nl_ip')})) is True
+                if reuse_nginx:continue
             if ep.role=='ru' and ((proto.startswith('tcp') and n in (80,443,8765,c['ovpn_port'])) or (proto.startswith('udp') and n==c['ovpn_port'])):raise InstallError('RU: занят нужный порт '+str(n))
             if proto.startswith('udp') and n in (500,4500):raise InstallError(ep.role+': IKE-порты заняты')
     # Save baseline once; no secrets in this inventory.
@@ -206,7 +231,8 @@ state=P('/var/lib/ovpn-installer')
 def fail(code):
  print('VPNAI_DIAG:'+code,flush=True);raise SystemExit(1)
 def call(*a):
- try:return subprocess.run(a,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode
+ try:return subprocess.run(a,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20 if a[0]=='swanctl' and '--terminate' in a else None).returncode
+ except subprocess.TimeoutExpired:return 124
  except FileNotFoundError:fail('CLEAN_TOOLS')
 if os.geteuid()!=0:raise SystemExit('Run as root')
 try:
