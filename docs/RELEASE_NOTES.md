@@ -1,11 +1,11 @@
-# VPNAI v0.1.6 — один файл со встроенным SSH
+# VPNAI v0.1.7 — один файл со встроенным SSH
 
 ## Что скачать
 
-- **Windows:** VPNAI-v0.1.6-windows-x64.exe — запустите двойным щелчком.
-- **macOS Apple Silicon:** VPNAI-v0.1.6-macos-arm64.zip.
-- **macOS Intel:** VPNAI-v0.1.6-macos-x64.zip.
-- **Linux x64:** VPNAI-v0.1.6-linux-x64.tar.gz.
+- **Windows:** VPNAI-v0.1.7-windows-x64.exe — запустите двойным щелчком.
+- **macOS Apple Silicon:** VPNAI-v0.1.7-macos-arm64.zip.
+- **macOS Intel:** VPNAI-v0.1.7-macos-x64.zip.
+- **Linux x64:** VPNAI-v0.1.7-linux-x64.tar.gz.
 
 Для macOS/Linux распакуйте архив и запустите единственный исполняемый файл. Python, Paramiko, pip и setup-ssh на компьютере больше не требуются. Они включены в сборку; при запуске ничего не скачивается и системный Python не изменяется. Временная распаковка встроенных библиотек выполняется автоматически.
 
@@ -17,4 +17,4 @@
 
 Сборки пока не имеют издательского сертификата Windows/Apple Developer ID; возможны предупреждения ОС. Поддерживаемые локальные ОС: Windows 10/11 x64, macOS 15+, Linux x64 glibc 2.35+. Windows/Linux ARM64 не включены.
 
-VPNAI-source-v0.1.6.zip — необязательные исходники для разработчиков, для них сохраняются Python-скрипты запуска. SHA256SUMS.txt содержит контрольные суммы всех файлов.
+VPNAI-source-v0.1.7.zip — необязательные исходники для разработчиков, для них сохраняются Python-скрипты запуска. SHA256SUMS.txt содержит контрольные суммы всех файлов.

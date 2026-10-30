@@ -52,14 +52,14 @@
   "app/tests/test_ssh_trust.py": "56e1f815fde6ddcd4a3556400879dec7f95e740460abe1412e7d4d78caf5073f",
   "app/tests/test_verification.py": "18321cd2a3b733a7f08d3d0a7797d2f65ba9a14961b5a896d259d3a934ebf288",
   "docs/ARCHITECTURE.md": "cebd437ab5e00a5cd1d8b234a5f628266a1e62e8bdd7c7344a499361aa0bc0db",
-  "docs/RELEASE_NOTES.md": "0548ee59be2c7bf69ff4dc03ef6a6515b094d503ee9461c20a245c52c3dba20f",
+  "docs/RELEASE_NOTES.md": "9b3e006a52a3af6053647dc0576400ffc2616bc8d9476019beec4861db76c1cc",
   "docs/SETUP.md": "136d6ce93d64d4f18d8c6d57ec476f4e23931825e0a38b33def26baf74cb12d4",
   "docs/SSH_TRUST.md": "84ebf00e808fb197eef5245f96cb546ef88904aaffc3da0a7417bfafb1aa331f",
-  "docs/STANDALONE.md": "de4cacfa4978a19bdfa2f9a1b231419e5d09b4cd6146e0f1453ceb2f96f65914",
-  "docs/TEST_REPORT.md": "7e4423faa7bf07aad803703f78f12f759b06b8ce11af630d3a70d18a89f1c1b6",
+  "docs/STANDALONE.md": "eb58d4de20bf9cf2dae9274921f096bd6f09bc1adbacd056974b80427534f11b",
+  "docs/TEST_REPORT.md": "05a925943d297ea773f2e314a0fbf0d8c7a94f85eec06f49f609f7d44d38904b",
   "docs/readme.md": "6b5b3d12086d68ff0d612d12417f0209065b2b1d328da8834fe4b3e78c594f65",
   "linux.sh": "8a9d326f190fbe856d7a0ae4867976d64baff25c9aa3366f51408183fc61c461",
   "macos.command": "576c6933a19931032ceac746322c8c81572f637892f358bdab9687894952289c",
-  "readme.txt": "31169b2fd06c8543710d43e92c6eff7ff7a9f94fa53619412a1eab91d09569c4",
+  "readme.txt": "462889d6ce8c86fa693b794f791082fbf06ab960e96014b684e0e3e435c750da",
   "windows.bat": "0a0b05deb5eb24e6c1a8f6a22bb1dcf9b62fa369f72f57e8e96a98c587853c06"
 }

@@ -23,7 +23,11 @@ with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as packag
     for path in sorted(files):
         name='VPNAI/'+path.relative_to(ROOT).as_posix()
         if any(part.startswith('.') or part in ('__pycache__','__MACOSX') for part in pathlib.PurePosixPath(name).parts):raise SystemExit('Unwanted file: '+name)
-        package.write(path,name)
+        info=zipfile.ZipInfo.from_file(path,name)
+        info.create_system=3
+        mode=0o100755 if path.read_bytes().startswith(b'#!') or path.suffix in ('.sh','.command') else 0o100644
+        info.external_attr=mode<<16
+        package.writestr(info,path.read_bytes(),compress_type=zipfile.ZIP_DEFLATED,compresslevel=9)
 with zipfile.ZipFile(archive) as package:
     if package.testzip() is not None:raise SystemExit('Invalid ZIP')
     expected={'app','docs','readme.txt','macos.command','linux.sh','windows.bat'}
