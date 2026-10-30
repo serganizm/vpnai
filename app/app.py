@@ -3,15 +3,18 @@
 import argparse,contextlib,json,pathlib,secrets,socket,threading,time,urllib.parse,webbrowser,sys
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 import backend
+from ssh_trust import TrustStore
 ROOT=pathlib.Path(__file__).resolve().parent
 
 def local_platform():
     return 'windows' if sys.platform=='win32' else 'macos' if sys.platform=='darwin' else 'linux'
 
 class Application:
-    def __init__(self):self.token=secrets.token_urlsafe(32);self.jobs={};self.lock=threading.RLock()
+    def __init__(self,trust_path=None):self.token=secrets.token_urlsafe(32);self.jobs={};self.lock=threading.RLock();self.trust=TrustStore(trust_path)
     def start(self,data):
         settings=backend.validate(data)
+        if not settings['demo']:
+            for role,pin in self.trust.trusted(settings).items():settings[role]['fingerprint']=pin
         with self.lock:
             if any(j.status=='running' for j in self.jobs.values()):raise backend.UserError('Дождитесь завершения текущей операции или остановите её.')
             # Expire credential-bearing archives in memory.
@@ -71,6 +74,14 @@ class Handler(BaseHTTPRequestHandler):
             data=json.loads(self.rfile.read(length));path=urllib.parse.urlsplit(self.path).path
             if path=='/api/ssh-command':
                 self.send(200,backend.ssh_copy_command(data.get('host',''),data.get('port',22),data.get('platform',local_platform()),data.get('key_path','~/.ssh/id_ed25519')));return
+            if path=='/api/ssh/prepare':
+                settings=backend.validate(data)
+                if settings['demo']:raise backend.UserError('Демонстрация не требует SSH-доверия.')
+                pins=backend.fingerprints(settings)
+                self.send(200,self.server.application.trust.prepare(settings,pins));return
+            if path=='/api/ssh/confirm':
+                if data.get('accept') is not True:raise backend.UserError('Доверие SSH не подтверждено.')
+                self.send(200,self.server.application.trust.confirm(data.get('confirmation_token')));return
             if path=='/api/fingerprints':
                 settings=backend.validate(data)
                 if settings['demo']:result={'ru':'DEMO: fingerprint not used','nl':'DEMO: fingerprint not used'}

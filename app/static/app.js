@@ -27,7 +27,7 @@ function updateRouteNotice(){
  if(!$('routeNotice'))return;
  $('routeNotice').textContent=selected.routing==='split'?'IPList загружается с сайта автоматически. Остальные IPv4 идут напрямую. DNS и IPv6 устройства остаются без изменений; IPv6 может обходить эти списки.':selected.routing==='full_mixed'?'Все IPv4 идут в VPN. IPList и ручной RU-EU выходят через зарубежный сервер, остальные — через российский. IPv6 и DNS-настройки устройства не меняются.':'Все внешние IPv4 выходят через зарубежный сервер. Ручные списки сохраняются, но в этом режиме на выход не влияют. IPv6 и DNS-настройки устройства не меняются.';
 }
-function invalidatePins(){pins={};$('trust').checked=false;$('fingerprints').textContent='Данные подключения изменены — получите отпечатки заново.';}
+function invalidatePins(){pins={};$('sshTrustStatus').textContent='SSH-ключи будут автоматически проверены при запуске операции. Для новых серверов потребуется подтверждение доверия.';}
 for(const role of ['ru','nl']){
  $(role+'Method').onchange=()=>{const key=$(role+'Method').value==='key';$(role+'KeyRow').classList.toggle('hidden',!key);$(role+'LocalRow').classList.toggle('hidden',$(role+'Method').value!=='local-key');$(role+'PasswordRow').classList.toggle('hidden',$(role+'Method').value!=='password');invalidatePins();};
  for(const field of ['Host','Port','KeyPath'])$(role+field).addEventListener('input',()=>{invalidatePins();clearCommand(role);});
@@ -49,9 +49,32 @@ document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>show(Number(b.dataset
 document.querySelectorAll('.next').forEach(b=>b.onclick=()=>show(Math.min(3,page+1)));
 document.querySelectorAll('.back').forEach(b=>b.onclick=()=>show(Math.max(0,page-1)));
 function review(){const d=data();const rows=[['Российский сервер',d.ru.host||(d.demo?'Пример · 198.51.100.10':'Не указан')],['Зарубежный сервер',d.nl.host||(d.demo?'Пример · 203.0.113.20':'Не указан')],['Действие',actionNames[d.action]],['Маршрутизация',routeNames[d.routing]],['Авторизация',authNames[d.auth]],['Обновить пакеты ОС',d.update_packages?'Да':'Нет'],['Пользователь',d.initial_user],['Список RU',d.ru_routes.split('\n').filter(x=>x.split('#')[0].trim()).length+' записей'],['Список RU-EU',d.eu_routes.split('\n').filter(x=>x.split('#')[0].trim()).length+' записей']];$('summary').replaceChildren();for(const [title,value] of rows){const item=document.createElement('div');item.className='summary-item';const k=document.createElement('small');k.textContent=title;const v=document.createElement('strong');v.textContent=value;item.append(k,v);$('summary').append(item);}$('destructive').classList.toggle('hidden',!['fresh','remove'].includes(d.action));$('start').textContent=d.demo?'Запустить демонстрацию →':actionNames[d.action]+' →';$('reviewSubtitle').textContent=d.demo?'Демонстрация не создаёт соединений и ничего не меняет на серверах.':'Будут использованы только два указанных сервера. Пароли не записываются в файлы.';}
-$('fingerprintButton').onclick=async()=>{message('');const b=$('fingerprintButton');b.disabled=true;try{pins=await api('/api/fingerprints',data());$('fingerprints').textContent='Российский: '+pins.ru+'\nЗарубежный: '+pins.nl+'\nОтпечатки получены. Логин и пароль будут проверены при запуске операции.';$('trust').checked=false;}catch(e){message(e.message);}finally{b.disabled=false;}};
+
 function lockForm(lock){running=lock;document.querySelectorAll('input,select,textarea,.choice,.nav').forEach(el=>el.disabled=lock);$('runControls').classList.toggle('hidden',lock||!!jobId);}
-$('start').onclick=async()=>{message('');const d=data();if(!d.demo&&(!$('trust').checked||!pins.ru||!pins.nl)){message('На первом шаге получите и подтвердите SSH-отпечатки.');return;}$('start').disabled=true;try{const j=await api('/api/jobs',d);jobId=j.id;sessionStorage.setItem('vpn-job',jobId);for(const r of ['ru','nl'])for(const suffix of ['Password','Key','Passphrase','LocalPassphrase'])$(r+suffix).value='';$('progressPanel').classList.remove('hidden');$('result').classList.add('hidden');lockForm(true);poll();}catch(e){message(e.message);}finally{$('start').disabled=false;}};
+async function prepareSSH(d){
+ const prepared=await api('/api/ssh/prepare',d);
+ if(prepared.confirmation_required){
+  const unknown=prepared.servers.filter(s=>!s.known);
+  const description=unknown.map(s=>(s.role==='ru'?'Российский':'Зарубежный')+' сервер '+s.host+':'+s.port+'\n'+s.fingerprint).join('\n\n');
+  const accepted=window.confirm('Первое подключение: доверять этим SSH-ключам?\n\n'+description+'\n\nПри возможности сверьте отпечатки через консоль хостинга. Без независимой сверки первое подключение основано на доверии полученному ключу. Пароль пока не передавался.\n\nОК — сохранить ключи на этом компьютере и продолжить; Отмена — остановиться.');
+  if(!accepted){message('Подключение отменено. Новые SSH-ключи не сохранены, пароль серверам не передавался.');return false;}
+  pins=(await api('/api/ssh/confirm',{confirmation_token:prepared.confirmation_token,accept:true})).fingerprints;
+ }else pins=prepared.fingerprints;
+ for(const role of ['ru','nl'])d[role].fingerprint=pins[role];
+ $('sshTrustStatus').textContent='SSH-ключи проверены. При соединении они будут проверены повторно.';
+ return true;
+}
+$('start').onclick=async()=>{
+ message('');const d=data();lockForm(true);$('start').disabled=true;
+ try{
+  if(!d.demo&&!(await prepareSSH(d)))return;
+  const j=await api('/api/jobs',d);jobId=j.id;sessionStorage.setItem('vpn-job',jobId);
+  for(const r of ['ru','nl'])for(const suffix of ['Password','Key','Passphrase','LocalPassphrase'])$(r+suffix).value='';
+  $('progressPanel').classList.remove('hidden');$('result').classList.add('hidden');poll();
+ }catch(e){message(e.message);}
+ finally{if(!jobId)lockForm(false);$('start').disabled=false;}
+};
+
 function reportSummary(r){
  if(!r.servers)return;
  const rows=[['Российский сервер',r.servers.ru],['Зарубежный сервер',r.servers.nl],['Действие',actionNames[r.action]],['Маршрутизация',(routeNames[r.routing]||'Не определена — см. журнал')],['Авторизация',(authNames[r.auth]||'Не определена — см. журнал')],['Обновить пакеты ОС',r.update_packages?'Да':'Нет'],['Пользователь',r.initial_user||'—'],['Список RU',r.lists_from_server?'Сохранённый на сервере':(r.lists?.ru?.length||0)+' записей'],['Список RU-EU',r.lists_from_server?'Сохранённый на сервере':(r.lists?.eu?.length||0)+' записей']];

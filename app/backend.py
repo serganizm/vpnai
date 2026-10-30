@@ -100,10 +100,16 @@ def fingerprints(settings):
     """Read host keys without authenticating or running commands."""
     pm=get_paramiko();result={}
     for role in ('ru','nl'):
-        s=settings[role];sock=socket.create_connection((s['host'],s['port']),timeout=8)
-        transport=pm.Transport(sock)
-        try:transport.start_client(timeout=8);result[role]=fingerprint(transport.get_remote_server_key())
-        finally:transport.close();sock.close()
+        s=settings[role];sock=None;transport=None
+        try:
+            sock=socket.create_connection((s['host'],s['port']),timeout=8)
+            transport=pm.Transport(sock);transport.start_client(timeout=8)
+            result[role]=fingerprint(transport.get_remote_server_key())
+        except Exception as error:
+            raise UserError('Не удалось автоматически получить SSH-ключ: '+('российский' if role=='ru' else 'зарубежный')+' сервер '+s['host']+':'+str(s['port'])+' ('+type(error).__name__+'). Проверьте адрес, порт и доступность. Пароль ещё не передавался.') from None
+        finally:
+            if transport:transport.close()
+            if sock:sock.close()
     return result
 
 class Remote(engine.Endpoint):

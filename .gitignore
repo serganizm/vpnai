@@ -38,3 +38,6 @@ ovpn-downloads/
 
 # Release build output
 build/
+
+# Local SSH trust database (public fingerprints only; never ship user data)
+ssh-hosts.json
