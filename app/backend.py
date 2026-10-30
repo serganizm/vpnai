@@ -63,6 +63,33 @@ def validate(data):
     if clean['action'] in ('remove','fresh') and data.get('confirmation')!='УДАЛИТЬ':raise UserError('Для этого действия введите УДАЛИТЬ.')
     return clean
 
+
+INSPECT_MODES = r"""import pathlib,json
+base=pathlib.Path('/etc/openvpn/server')
+profiles=[]
+for name in ('ru.conf','ru-tcp.conf'):
+ p=base/name
+ if not p.exists():profiles.append(None);continue
+ lines=[s.strip() for s in p.read_text().splitlines() if s.strip() and not s.lstrip().startswith(('#',';'))]
+ profiles.append({'redirect':any(s.startswith('push ') and 'redirect-gateway' in s for s in lines),'split':any(s.startswith('client-connect ') and 'ovpn-split-connect' in s for s in lines),'password':any(s.startswith('auth-user-pass-verify ') for s in lines)})
+p=pathlib.Path('/usr/local/sbin/ovpn-network')
+network=p.read_text() if p.exists() else ''
+print(json.dumps({'profiles':profiles,'list_classifier':'--match-set ovpn_nl' in network,'split_tools':all(pathlib.Path(p).is_file() for p in ('/usr/local/sbin/ovpn-split-routes','/usr/local/libexec/ovpn-split-connect'))}))
+"""
+
+def installed_modes(ep,previous):
+    observed=json.loads(ep.python(INSPECT_MODES));profiles=observed['profiles'];saved=previous['config']
+    complete=len(profiles)==2 and all(isinstance(p,dict) for p in profiles)
+    routing='unknown';auth='unknown'
+    if complete:
+        if all(p['split'] and not p['redirect'] for p in profiles):routing='split'
+        elif all(p['redirect'] and not p['split'] for p in profiles):
+            if observed['list_classifier']:routing='full_mixed'
+            elif saved.get('routing_mode')=='full_nl':routing='full_nl'
+        if all(p['password'] for p in profiles):auth='password'
+        elif all(not p['password'] for p in profiles):auth='certificate'
+    return {'routing':routing,'auth':auth,'state_version':previous.get('version'),'legacy':previous.get('version',1)<2,'split_tools':observed['split_tools']}
+
 def get_paramiko():
     try:import paramiko;return paramiko
     except ImportError:raise UserError('Для реальных серверов установите SSH-компонент: запустите из папки app файл для своей ОС: setup-ssh-windows.bat (Windows), setup-ssh-macos.command (macOS) или setup-ssh-linux.sh (Linux). Перед установкой закройте приложение, после установки запустите его снова.')
@@ -103,7 +130,16 @@ class Remote(engine.Endpoint):
                 except Exception:continue
             if key is None:raise UserError('Не удалось прочитать приватный SSH-ключ. Проверьте формат и пароль ключа.')
             options['pkey']=key
-        client.connect(**options);client.get_transport().set_keepalive(20)
+        try:client.connect(**options)
+        except UserError:raise
+        except Exception as e:
+            server=('российский' if self.role=='ru' else 'зарубежный')+' сервер '+self.host+':'+str(s['port'])
+            if isinstance(e,getattr(pm,'AuthenticationException',())):
+                raise UserError('SSH: '+server+' отклонил авторизацию ('+('пароль' if s['method']=='password' else 'ключ')+'). Проверьте данные именно этого сервера и разрешённый способ входа. Получение отпечатка не проверяет пароль.') from None
+            if isinstance(e,(TimeoutError,socket.timeout)):
+                raise UserError('SSH: превышено время подключения или авторизации: '+server+'.') from None
+            raise UserError('SSH: не удалось подключиться: '+server+' ('+type(e).__name__+'). Проверьте адрес, порт и доступность сервера.') from None
+        client.get_transport().set_keepalive(20)
         self.shell('test "$(id -u)" = 0',quiet=True)
     def execute(self,command,payload='',limit=1800):
         inp,out,err=self.client.exec_command(command,timeout=limit);channel=out.channel
@@ -122,7 +158,10 @@ class Remote(engine.Endpoint):
             if time.monotonic()>deadline:channel.close();raise UserError('Превышено время команды на '+self.role+'. Проверьте сервер перед повторным запуском.')
             time.sleep(.03)
         status=channel.recv_exit_status();sender.join(timeout=2)
-        if status or send_error:raise UserError('Команда на '+('российском' if self.role=='ru' else 'зарубежном')+' сервере завершилась с ошибкой'+(' (код '+str(status)+')' if status else '')+'. Проверьте журнал systemd/пакетов на сервере. Пароли в журнал приложения не выводятся.')
+        if status or send_error:
+            detail=engine.diagnostic_message(b''.join(chunks).decode(errors='replace'))
+            if detail:raise UserError(('Российский' if self.role=='ru' else 'Зарубежный')+' сервер: '+detail+' (код '+str(status)+').')
+            raise UserError('Команда на '+('российском' if self.role=='ru' else 'зарубежном')+' сервере завершилась с ошибкой'+(' (код '+str(status)+')' if status else '')+'. Проверьте журнал systemd/пакетов на сервере. Пароли в журнал приложения не выводятся.')
         return b''.join(chunks).decode(errors='replace')
     def shell(self,script,quiet=False):return self.execute('bash -s',script)
     def python(self,code,data=None):
@@ -292,6 +331,18 @@ def real_run(job):
         previous=json.loads(ru.python("import pathlib; p=pathlib.Path('/var/lib/ovpn-installer/state.json'); print(p.read_text() if p.exists() else 'null')"))
         job.report={'demo':False,'action':s['action'],'servers':{r:s[r]['host'] for r in ('ru','nl')},'existing':{r:inv[r]['managed'] for r in ('ru','nl')},'os':{r:inv[r]['os'] for r in ('ru','nl')},'routing':s['routing'],'auth':s['auth'],'update_packages':s['update_packages'],'initial_user':s['initial_user'],'lists':{'ru':s['ru_routes'],'eu':s['eu_routes']},'system':system,'checks':[]}
         if previous and any(previous['config'].get(k)!=c[k] for k in ('ru_ip','nl_ip')):raise UserError('Сохранённая установка относится к другой паре серверов.')
+        detected=None
+        if previous and s['action'] in ('check','verify','resume'):
+            job.event('Режим сервера',9,'Чтение фактических настроек OpenVPN: выбранный в форме режим не применяется при проверке.')
+            detected=installed_modes(ru,previous)
+            job.report['installed']=detected;job.report['requested_routing']=s['routing'];job.report['requested_auth']=s['auth']
+            job.report['routing']=detected['routing'];job.report['auth']=detected['auth'];job.report['lists_from_server']=True
+            warnings=[]
+            if detected['legacy']:warnings.append('Обнаружена старая установка; проверка учитывает её формат без изменения серверов.')
+            if detected['routing']!=s['routing']:warnings.append('Фактическая маршрутизация: '+{'full_mixed':'весь IPv4 через VPN с выбором RU/NL','full_nl':'весь IPv4 через зарубежный сервер','split':'раздельные маршруты','unknown':'не удалось однозначно определить'}[detected['routing']]+'. Выбор в форме при проверке её не меняет.')
+            if detected['auth']!=s['auth']:warnings.append('Авторизация в отчёте взята из действующих настроек сервера.')
+            job.report['warnings']=warnings
+            for warning in warnings:job.event('Режим сервера',10,warning)
         if s['action']=='check':
             for ep in endpoints:
                 class ReadOnly:
@@ -311,17 +362,23 @@ def real_run(job):
         if s['action'] in ('resume','verify') and not previous:raise UserError('Сохранённая установка не найдена. Выберите установку после проверки серверов.')
         if s['action']=='install' and (previous or any(inv[r]['managed'] for r in ('ru','nl'))):raise UserError('Найдена предыдущая установка. Выберите восстановление или установку заново.')
         if previous:
-            saved=previous['config']
+            saved=dict(previous['config'])
+            if detected:
+                if detected['routing']=='unknown' or detected['auth']=='unknown':raise UserError('Режимы двух OpenVPN-служб не удалось однозначно определить. Серверы не изменены; проверьте конфигурации перед восстановлением.')
+                saved['routing_mode']=detected['routing'];saved['auth_mode']=detected['auth']
             if s['action']=='resume' and (saved.get('routing_mode','split')!=c['routing_mode'] or saved.get('auth_mode','password')!=c['auth_mode']):raise UserError('Восстановление сохраняет режим маршрутизации и авторизации. Выберите сохранённые режимы либо установку заново.')
             c=dict(saved);c.setdefault('routing_mode','split');c.setdefault('auth_mode','password')
             job.report['routing']=c['routing_mode'];job.report['auth']=c['auth_mode']
         if s['action']=='verify':
             job.event('Проверка VPN',45,'Проверка служб, HTTPS и реальных выходов из серверных тестовых сетей.')
-            job.report['verification']=engine.verify(c,ru,nl);job.report['notice']='Клиент OpenVPN на личном устройстве не проверялся.'
-            job.artifact=collect(ru);job.expires=time.time()+600;return
+            job.report['verification']=engine.verify(c,ru,nl,write_report=False);job.report['notice']='Проверка серверов завершена. '+(' '.join(job.report.get('warnings',[]))+' ' if job.report.get('warnings') else '')+'Клиент OpenVPN на личном устройстве не проверялся.'
+            job.event('Архив профилей',96,'Проверки VPN пройдены. Чтение существующих профилей для скачивания.')
+            try:job.artifact=collect(ru)
+            except UserError:raise UserError('Проверки VPN пройдены, но получить архив существующих профилей не удалось. Проверьте /root/ovpn-profiles/ на российском сервере.') from None
+            job.expires=time.time()+600;return
         for ep in endpoints:job.checkpoint();engine.preflight(c,ep,inv[ep.role],bool(previous))
         state=previous or {'version':2,'config':c,'psk':secrets.token_hex(32),'complete':False}
-        state['complete']=False;state['config']=c
+        state['version']=2;state['complete']=False;state['config']=c
         ru.write('/var/lib/ovpn-installer/state.json',json.dumps(state));mutated=True
         for ep in (nl,ru):
             job.checkpoint()

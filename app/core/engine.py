@@ -322,41 +322,79 @@ users=json.loads(pathlib.Path('/etc/openvpn/server/users.json').read_text())
 if DATA not in users:subprocess.run(['ovpn-user','add',DATA],check=True)
 ''',name)
 
-def verify(c,ru,nl):
-    results={}
+DIAGNOSTICS={
+ 'NAMESPACE_BUSY':'временная тестовая сеть или интерфейс уже существуют; чужие объекты не удалялись',
+ 'PROBE_ADDRESS_BUSY':'адрес теста используется клиентом; тест остановлен без отключения клиента',
+ 'NAMESPACE_SETUP':'не удалось создать временную тестовую сеть или её маршрут',
+ 'PROBE_RULES':'не удалось применить временные правила теста',
+ 'NL_EXIT':'тестовый HTTPS-запрос через NL не прошёл',
+ 'RU_EXIT':'тестовый HTTPS-запрос через RU не прошёл',
+ 'NL_EXIT_MISMATCH':'тестовый трафик вышел с адреса, отличного от ожидаемого NL',
+ 'RU_EXIT_MISMATCH':'тестовый трафик вышел с адреса, отличного от ожидаемого RU',
+}
+VERIFY_UNITS=['ovpn-network','ovpn-tcp-network','strongswan','openvpn-server@ru','openvpn-server@ru-tcp','nginx','ovpn-links','ovpn-links-cleanup','ovpn-list-update.timer','ovpn-cert-renew.timer','ovpn-crl-refresh.timer']
+
+def diagnostic_message(output):
+    # Interpret only fixed codes; never copy arbitrary command output into the UI.
+    for line in output.splitlines():
+        if not line.startswith('VPNAI_DIAG:'):continue
+        value=line[len('VPNAI_DIAG:'):]
+        if value in DIAGNOSTICS:return DIAGNOSTICS[value]
+        if value.startswith('SERVICE:') and value[8:] in VERIFY_UNITS:return 'неактивна обязательная служба '+value[8:]
+    return ''
+
+def verify(c,ru,nl,write_report=True):
+    results={'steps':[]}
+    def step(name,ep,fn):
+        try:
+            value=fn();results['steps'].append({'check':name,'server':ep.role,'passed':True});return value
+        except Exception as error:
+            # Remote errors already redact payloads. Preserve only our own safe messages.
+            detail=str(error) if isinstance(error,InstallError) or type(error).__name__=='UserError' else type(error).__name__
+            raise InstallError('Проверка «'+name+'», '+('российский' if ep.role=='ru' else 'зарубежный')+' сервер: '+detail) from None
     for ep in [ru,nl]:
-        units=['ovpn-network','ovpn-tcp-network','strongswan']+(['openvpn-server@ru','openvpn-server@ru-tcp','nginx','ovpn-links','ovpn-links-cleanup','ovpn-list-update.timer','ovpn-cert-renew.timer','ovpn-crl-refresh.timer'] if ep.role=='ru' else [])
-        ep.shell('set -e\nsystemctl is-active '+ ' '.join(units)+'\nswanctl --list-sas\n',quiet=True)
+        units=VERIFY_UNITS if ep.role=='ru' else VERIFY_UNITS[:3]
+        script='set -e\nfor unit in '+' '.join(units)+'; do\n if ! systemctl is-active --quiet "$unit"; then printf "VPNAI_DIAG:SERVICE:%s\\n" "$unit"; exit 1; fi\ndone\n'
+        step('Службы',ep,lambda ep=ep,script=script:ep.shell(script,quiet=True))
+        step('Состояние IPsec',ep,lambda ep=ep:ep.shell('swanctl --list-sas',quiet=True))
         results[ep.role]={'services':units,'active':True}
-    ru.shell('set -e\nswanctl --list-sas 2>/dev/null | grep -q INSTALLED\niptables -C OUTPUT -d '+shlex.quote(c['nl_ip'])+' -p gre -m policy --dir out --pol none -j DROP\n',quiet=True)
-    nl.python("import socket; s=socket.create_connection((DATA[0],DATA[1]),timeout=10); s.close(); print('OpenVPN TCP port reachable')",[c['ru_ip'],c['ovpn_port']])
-    # The remote HTTPS request validates IP SAN, trust chain and public reachability, without downloading any credential.
-    nl.python('''import urllib.request,urllib.error
+    step('Установленный IPsec и защита GRE',ru,lambda:ru.shell('set -e\nswanctl --list-sas 2>/dev/null | grep -q INSTALLED\niptables -C OUTPUT -d '+shlex.quote(c['nl_ip'])+' -p gre -m policy --dir out --pol none -j DROP\n',quiet=True))
+    step('Доступность OpenVPN TCP с NL',nl,lambda:nl.python("import socket; s=socket.create_connection((DATA[0],DATA[1]),timeout=10); s.close(); print('OpenVPN TCP port reachable')",[c['ru_ip'],c['ovpn_port']]))
+    step('HTTPS: сертификат и ответ сервиса',nl,lambda:nl.python("""import urllib.request,urllib.error
 try:urllib.request.urlopen('https://'+DATA+'/',timeout=20)
 except urllib.error.HTTPError as e:
  if e.code!=404:raise
 else:raise SystemExit('Unexpected public root response')
 print('HTTPS verified')
-''',c['ru_ip'])
-    # Functional output checks from a temporary network namespace at the RU ingress.
-    # This exercises real forwarding, marks, GRE/IPsec and NAT but does not issue a client certificate.
-    probe=ru.python(PROBE,c)
-    results['routing_udp_subnet']=json.loads(probe)
-    results['routing_tcp_subnet']=json.loads(ru.python(PROBE,dict(c,vpn_net=c['tcp_net'])))
-    results['split_routes']=json.loads(ru.python("import pathlib; print(pathlib.Path('/var/lib/ovpn-routing/split-status.json').read_text())"))
+""",c['ru_ip']))
+    results['routing_udp_subnet']=step('Выходы RU/NL из подсети UDP',ru,lambda:json.loads(ru.python(PROBE,c)))
+    results['routing_tcp_subnet']=json.loads(step('Выходы RU/NL из подсети TCP',ru,lambda:ru.python(PROBE,dict(c,vpn_net=c['tcp_net']))))
+    if c.get('routing_mode','full_mixed')=='split':
+        code="import pathlib,json; p=pathlib.Path('/var/lib/ovpn-routing/split-status.json'); print(p.read_text() if p.exists() else 'null')"
+        status=step('Состояние раздельных маршрутов',ru,lambda:json.loads(ru.python(code)))
+        if not isinstance(status,dict) or status.get('default_route') is not False or type(status.get('ipv4_routes')) is not int or status['ipv4_routes']<0:
+            raise InstallError('Проверка раздельных маршрутов: split-status.json отсутствует или некорректен. Эта ошибка не означает отказ IPsec; компоненты раздельных маршрутов требуют восстановления.')
+        results['split_routes']=status
+    else:
+        results['split_routes']={'status':'not_applicable','reason':'Фактический режим направляет весь IPv4 через VPN; файл раздельных маршрутов не требуется.'}
     results['limitations']=['OpenVPN Connect на личном устройстве не проверялся.','Перезагрузка VPS автоматически не выполнялась.','Работа OpenVPN через сеть конкретного провайдера не проверялась.']
-    ru.write('/root/ovpn-install-report.json',json.dumps(results,ensure_ascii=False,indent=2))
-    print('Проверки завершены. Отчёт: /root/ovpn-install-report.json')
+    if write_report:ru.write('/root/ovpn-install-report.json',json.dumps(results,ensure_ascii=False,indent=2))
     return results
 
 PROBE=r'''import subprocess,time,urllib.request,ipaddress,pathlib
 c=DATA
 # Use a root-owned, exclusively named namespace; refuse collisions rather than altering another namespace.
 ns='ovpn-install-check';host='ovi-host';peer='ovi-peer';net=ipaddress.ip_network(c['vpn_net']);client=str(net[250]);gateway=str(net[249]);destination='1.1.1.1'
-def run(*a,check=True):return subprocess.run(a,check=check,capture_output=True,text=True)
-if ns in run('ip','netns','list').stdout or host in run('ip','-o','link').stdout:raise SystemExit('Test namespace/interface already exists')
+stage='NAMESPACE_SETUP'
+def fail(code):
+ print('VPNAI_DIAG:'+code,flush=True);raise SystemExit(1)
+def run(*a,check=True):
+ r=subprocess.run(a,check=False,capture_output=True,text=True)
+ if check and r.returncode:fail(stage)
+ return r
+if ns in run('ip','netns','list').stdout or host in run('ip','-o','link').stdout:fail('NAMESPACE_BUSY')
 statuses=[pathlib.Path('/run/openvpn-server/ru-status.log'),pathlib.Path('/run/openvpn-server/ru-tcp-status.log')]
-if any(status.exists() and any(a in status.read_text() for a in [client+'\t',gateway+'\t']) for status in statuses):raise SystemExit('Probe addresses are in use; skip automatic test until clients disconnect')
+if any(status.exists() and any(a in status.read_text() for a in [client+'\t',gateway+'\t']) for status in statuses):fail('PROBE_ADDRESS_BUSY')
 added=[]
 def rule(*args):
  run('iptables',*args);added.append(args)
@@ -364,21 +402,24 @@ try:
  run('ip','netns','add',ns);run('ip','link','add',host,'type','veth','peer','name',peer)
  run('ip','link','set',peer,'netns',ns);run('ip','addr','add',gateway+'/32','dev',host);run('ip','link','set',host,'up')
  run('ip','route','add',client+'/32','dev',host);run('ip','-n',ns,'addr','add',client+'/30','dev',peer);run('ip','-n',ns,'link','set',peer,'up');run('ip','-n',ns,'link','set','lo','up');run('ip','-n',ns,'route','add','default','via',gateway)
+ stage='PROBE_RULES'
  # Add only a dedicated match for this probe, then remove it in finally.
  rule('-t','mangle','-I','PREROUTING','1','-i',host,'-s',client+'/32','-j','OVPN_CLASSIFY')
  rule('-I','FORWARD','1','-i',host,'-s',client+'/32','-j','ACCEPT')
  rule('-I','FORWARD','1','-o',host,'-d',client+'/32','-m','conntrack','--ctstate','ESTABLISHED,RELATED','-j','ACCEPT')
+ stage='NL_EXIT'
  # NL traffic forced with a high-priority exact probe route, without changing any source CIDRs.
  run('ip','rule','add','pref','10309','from',client+'/32','lookup','310')
  try:
   r=run('ip','netns','exec',ns,'curl','-4','-fsS','--max-time','20','https://1.1.1.1/cdn-cgi/trace')
-  assert 'ip='+c['nl_ip']+'\n' in r.stdout,'NL output mismatch'
+  if 'ip='+c['nl_ip']+'\n' not in r.stdout:fail('NL_EXIT_MISMATCH')
  finally:run('ip','rule','del','pref','10309','from',client+'/32','lookup','310',check=False)
+ stage='RU_EXIT'
  # Force fresh probe connections into main; high priority overrides the connmark classifier.
  run('ip','rule','add','pref','10309','from',client+'/32','lookup','main')
  try:
   r=run('ip','netns','exec',ns,'curl','-4','-fsS','--max-time','20','https://1.1.1.1/cdn-cgi/trace')
-  assert 'ip='+c['ru_ip']+'\n' in r.stdout,'RU output mismatch'
+  if 'ip='+c['ru_ip']+'\n' not in r.stdout:fail('RU_EXIT_MISMATCH')
  finally:run('ip','rule','del','pref','10309','from',client+'/32','lookup','main',check=False)
  print(json.dumps({'nl_exit':c['nl_ip'],'ru_exit':c['ru_ip'],'gre_ipsec_nat':'pass','probe':'isolated namespace, not OpenVPN client handshake'}))
 finally:
