@@ -1,0 +1,11 @@
+{
+  "version": "v0.3.1",
+  "sha256": "1b29e17778fe9b604922786cc5ee09d41ab1d971f2078e4353df9e22e057257a",
+  "instrumentation_passed": true,
+  "lint_passed": true,
+  "signature_sha256": "ce8f08149d56676bf51912924fbaf15497fdbf7f49d3f1659b191a8925f70525",
+  "android_version": "15 ARM64 emulator",
+  "build_type": "debug",
+  "version_code": 30100,
+  "regression_tests": 231
+}

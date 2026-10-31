@@ -99,3 +99,141 @@ aside{width:280px;padding:30px 22px}main{margin-left:280px;padding:0 42px;max-wi
 .overview-layout{display:grid;gap:18px}.overview-layout>.metric-grid,.overview-layout>.admin-grid,.overview-layout>.toolbar,.overview-layout>.quick-actions,.overview-layout>.notice,.overview-layout .admin-grid>.admin-card,.overview-layout #userTable>.admin-card{margin:0}.overview-layout>.metric-grid,.overview-layout>.admin-grid{gap:18px}.overview-layout>.quick-actions{gap:18px}.overview-layout>.toolbar{gap:18px}.overview-refresh{margin:0}.user-table-actions{display:flex;align-items:center;gap:22px;margin-left:auto}.tunnel-status{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:11px}.tunnel-status strong{font-size:11px;font-weight:600}.tunnel-status small{display:block;color:inherit;font-size:10px}.tunnel-status-dot{width:6px;height:6px;flex:0 0 6px;border-radius:50%;background:currentColor}.tunnel-status.is-up{color:var(--green)}.tunnel-status.is-down{color:var(--red)}.tunnel-latency{border-left:1px solid var(--line);padding-left:12px;white-space:nowrap}@media(max-width:760px){.overview-layout>.toolbar{flex-wrap:wrap}.overview-layout>.toolbar input{max-width:100%}.user-table-actions{gap:14px}.tunnel-status{margin-left:auto}}
 
 .overview-layout>.toolbar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:stretch}.overview-layout>.toolbar>input{width:100%;max-width:none;height:100%;min-height:64px;margin:0}.overview-layout>.toolbar>.tunnel-status{width:100%;min-width:0;min-height:64px;margin:0;padding:12px 22px;background:var(--panel);border:1px solid var(--line);border-radius:12px;justify-content:space-between;gap:20px}.tunnel-status-copy{text-align:left;min-width:0}.tunnel-status-reading{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-shrink:0}.tunnel-status-reading .tunnel-latency{border:0;padding:0;min-width:48px;text-align:right}.tunnel-status.is-up .tunnel-status-dot{animation:connection-glow 2s ease-in-out infinite}@media(prefers-reduced-motion:reduce){.tunnel-status.is-up .tunnel-status-dot{animation:none}}@media(max-width:760px){.overview-layout>.toolbar{grid-template-columns:1fr}.overview-layout>.toolbar>input{min-height:48px}.overview-layout>.toolbar>.tunnel-status{margin:0}}
+
+/* Connection-file actions share the documentation row in every section. */
+.web-preview .help-menu{position:relative}
+.web-preview .connection-file-menu{position:static;color:var(--purple);font:inherit}
+.web-preview .connection-file-menu>summary{list-style:none;cursor:pointer;min-height:24px;padding:3px 0;line-height:1.6}
+.web-preview .connection-file-menu>summary::-webkit-details-marker{display:none}
+.web-preview .connection-file-menu[open]>summary{color:var(--text)}
+.web-preview .connection-file-popup{position:absolute;right:0;top:calc(100% + 8px);width:220px;max-width:calc(100vw - 32px);padding:6px;background:#222331;border:1px solid #454055;border-radius:12px;box-shadow:0 12px 35px #0007;z-index:70;white-space:normal;text-align:left}
+.web-preview .connection-file-popup button{display:block;width:100%;min-height:44px;padding:11px 12px;border:0;border-radius:8px;background:transparent;color:var(--text);font-size:12px;text-align:left}
+.web-preview .connection-file-popup button:hover,.web-preview .connection-file-popup button:focus-visible{background:#c5a6ff18;color:var(--purple)}
+.web-preview .connection-file-popup p{font-size:10px!important;line-height:1.5!important;letter-spacing:normal;margin:6px 12px 8px!important;color:var(--muted);white-space:normal}
+@media(max-width:340px){.web-preview #installView .step-heading .eyebrow,.web-preview #adminView .step-heading .eyebrow{font-size:9px;letter-spacing:.8px}}
+/* Align the file dropdown trigger with the adjacent documentation links. */
+.web-preview #installView .step-heading .help-menu,.web-preview #adminView .step-heading .help-menu{align-items:center}
+.web-preview .help-menu>.connection-file-menu{display:block;align-self:center;line-height:inherit}
+.web-preview .help-menu>.connection-file-menu>summary,.web-preview .help-menu>a{display:flex;align-items:center;box-sizing:border-box;min-height:24px;margin:0;padding:0;font:inherit;line-height:1.6}
+/* Reset the generic details margin on the inline File menu. */
+.web-preview .help-menu>.connection-file-menu{margin:0;padding:0;border:0;min-height:24px}
+/* Connection status is shown once in the shared header. */
+.web-preview .workspace-switch .mode-connection-dot{display:none}
+.web-preview .workspace-switch button{padding:7px 10px;text-align:center}
+
+/* Desktop counterpart of the approved mobile controls. */
+.web-preview{--workspace-title-size:35px;--workspace-copy-size:13px}
+.web-preview aside{overflow-y:auto}
+.web-preview .workspace-switch{grid-template-columns:1fr;gap:5px;padding:5px}
+.web-preview .workspace-switch button{display:flex;align-items:center;justify-content:center;width:100%;min-height:44px;margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font-size:12px;line-height:1.4;text-align:center}
+.web-preview .workspace-switch button.selected{border-color:#c5a6ff25}
+.web-preview .workspace-switch .mode-connection-dot{display:none}
+.web-preview #installNav,.web-preview #adminNav{margin-top:28px}
+.web-preview #installNav .side-caption,.web-preview #adminNav .admin-caption{font-size:9px;line-height:1.6;letter-spacing:1.6px;margin:0 0 14px;color:var(--muted)}
+.web-preview #navigation{gap:8px}
+.web-preview #navigation .nav,.web-preview .admin-nav{box-sizing:border-box;display:flex;align-items:center;justify-content:flex-start;gap:12px;width:100%;min-height:48px;margin:0 0 8px;padding:12px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--muted);font-size:12px;font-weight:500;line-height:1.4;letter-spacing:0;text-align:left}
+.web-preview #navigation .nav.active,.web-preview .admin-nav.active{background:#c5a6ff10;color:var(--text);border-color:#c5a6ff25}
+.web-preview #navigation .nav>span,.web-preview .admin-nav>span{display:block;flex:0 0 20px;width:20px;font:13px/1.3 monospace;text-align:left;color:#85819b}
+.web-preview #navigation .nav.active>span,.web-preview .admin-nav.active>span{color:var(--purple)}
+.web-status-bar{position:sticky;top:0;z-index:35;display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:76px;border-bottom:1px solid var(--line);background:var(--bg)}
+.web-status-caption{font-size:12px;color:var(--muted)}.web-status-caption>span{margin:0 10px;color:#77738c}.web-status-caption strong{font-weight:500;color:var(--purple)}
+.web-preview #workspaceConnectionBadge{flex-shrink:0;min-height:36px;padding:7px 13px;gap:10px;font-size:12px;line-height:1.4;white-space:nowrap}
+.web-preview #installView .page,.web-preview #adminView .admin-page-intro{padding-top:29px}
+.web-preview #installView .step-heading,.web-preview #adminView .step-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:24px;margin:0 0 24px}
+.web-preview #installView .step-heading .eyebrow,.web-preview #adminView .step-heading .eyebrow{display:block;font-size:10px;font-weight:600;line-height:1.6;letter-spacing:1.6px;color:var(--purple)}
+.web-preview #installView .step-heading .help-menu,.web-preview #adminView .step-heading .help-menu{display:flex;align-items:center;gap:18px;font-size:12px;line-height:1.6;white-space:nowrap}
+.web-preview #installView .page-intro,.web-preview #adminView .page-intro{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin:0 0 26px;padding:0}
+.web-preview #installView .page-intro h1,.web-preview #adminView .page-intro h1{font-size:var(--workspace-title-size);font-weight:600;line-height:1.18;letter-spacing:-1px;margin:0}
+.web-preview #installView .page-intro h1 em{font:inherit;color:inherit}
+.web-preview #installView .page-intro .lead,.web-preview #adminView .page-intro .lead{font-size:var(--workspace-copy-size);font-weight:400;line-height:1.6;letter-spacing:normal;color:var(--muted);margin:12px 0 20px}
+.web-preview #adminView .admin-heading>.primary{flex-shrink:0;margin-top:4px}
+.web-preview .help-menu>.connection-file-menu{display:block;align-self:center;margin:0;padding:0;border:0;min-height:24px;font:inherit}
+.web-preview .help-menu>.connection-file-menu>summary,.web-preview .help-menu>a{display:flex;align-items:center;box-sizing:border-box;min-height:24px;margin:0;padding:0;font:inherit;line-height:1.6}
+.web-preview .connection-file-popup{width:250px;padding:6px}
+.web-preview .connection-file-popup p{font-size:11px!important;line-height:1.6!important;margin:7px 12px 9px!important}
+.web-preview #installView .action-bar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-areas:"close back forward";gap:14px;overflow:visible;margin-top:26px}
+.web-preview #installView .action-bar .action-buttons{display:contents}
+.web-preview #installView .action-bar button.primary{height:48px;min-height:48px;width:100%;padding:10px 14px;white-space:normal;font-size:12px;line-height:1.4}
+.web-preview #installView .action-bar button.primary.back{grid-area:back;grid-row:1;grid-column:2}
+.web-preview #installView .action-bar button.primary.next,.web-preview #installView .action-bar button.primary#start{grid-area:forward;grid-row:1;grid-column:3}
+.web-preview #installView .action-bar>button.primary.exit-button{grid-area:close;grid-row:1;grid-column:1;background:#f9c5cc;border-color:#f9c5cc;color:#652d36;font-weight:600}
+.web-preview #installView .action-bar>button.primary.exit-button:hover{background:#ffdadf;border-color:#ffdadf}
+@media(max-width:1100px){.web-preview{--workspace-title-size:30px}.web-preview main{padding-left:28px;padding-right:28px}}
+@media(max-width:760px){.web-preview{--workspace-title-size:28px}.web-preview .web-status-bar{min-height:64px;gap:12px}.web-preview .web-status-caption{font-size:10px}.web-preview .web-status-caption>span{margin:0 4px}.web-preview #workspaceConnectionBadge{font-size:11px;padding:7px 10px}.web-preview #installNav,.web-preview #adminNav{margin-top:16px}.web-preview #navigation,.web-preview #adminNav{display:flex;flex-wrap:wrap;gap:6px}.web-preview #navigation .nav,.web-preview .admin-nav{width:auto;min-height:42px;gap:7px;padding:9px;font-size:11px}.web-preview #navigation .nav>span,.web-preview .admin-nav>span{flex-basis:auto;width:auto;font-size:11px}.web-preview .admin-caption{display:none}.web-preview .server-grid,.web-preview .admin-grid{grid-template-columns:1fr}.web-preview #installView .page-intro,.web-preview #adminView .page-intro{flex-direction:column;gap:10px}.web-preview #installView .step-heading,.web-preview #adminView .step-heading{gap:10px}.web-preview #installView .step-heading .help-menu,.web-preview #adminView .step-heading .help-menu{gap:10px;font-size:11px}.web-preview #installView .action-bar{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"back forward" "close close";gap:10px}.web-preview #installView .action-bar button.primary.back{grid-row:1;grid-column:1}.web-preview #installView .action-bar button.primary.next,.web-preview #installView .action-bar button.primary#start{grid-row:1;grid-column:2}.web-preview #installView .action-bar>button.primary.exit-button{grid-row:2;grid-column:1/-1}}
+
+.web-preview #adminView .web-connection-actions{display:flex;align-items:center;justify-content:space-between;width:100%;gap:14px}
+.web-preview #adminView .web-connection-actions>[data-admin-action=connect]{margin-left:auto}
+
+/* Shared connection, installation and management workspaces. */
+.workflow-connection-hint{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 20px;margin:0 0 24px;border:1px solid var(--line);border-radius:16px;background:#191a26}
+.workflow-connection-hint strong{font-size:15px}.workflow-connection-hint p{margin:6px 0 0;color:var(--muted);font-size:13px}.workflow-connection-hint button{white-space:nowrap}
+.workflow-next{padding:24px;margin:24px 0 0;border:1px solid var(--line);border-radius:16px;background:#191a26}.workflow-next h2{margin:0;font-size:18px}.workflow-next p{color:var(--muted);font-size:13px}.workflow-next>div{display:flex;gap:12px}.workflow-next button{min-width:150px}
+.web-preview .workspace-switch button{min-height:44px;padding:10px 16px}.web-preview .workspace-switch .mode-connection-dot{display:none}
+
+/* Navigation without an application exit action. */
+.web-preview #installView .action-bar{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"back forward"}
+.web-preview #installView .action-bar button.primary.back{grid-column:1;grid-row:1}
+.web-preview #installView .action-bar button.primary.next,.web-preview #installView .action-bar button.primary#start{grid-column:2;grid-row:1}
+
+/* Fixed back width; the next action fills the remaining space. */
+.web-preview #installView .action-bar{grid-template-columns:130px minmax(0,1fr);grid-template-areas:"back forward"}
+.web-preview #installView .action-bar button.primary.back{width:130px;min-width:130px;white-space:nowrap;padding:10px 8px}
+
+/* Keep the action label centered and anchor its arrow independently. */
+.web-preview #installView .action-bar button.primary.next,.web-preview #installView .action-bar button.primary#start{position:relative;justify-content:center;padding-left:36px;padding-right:36px;text-align:center}
+.web-preview #installView .action-bar button.primary.next>span,.web-preview #installView .action-bar button.primary#start>span{position:absolute;right:14px;top:50%;transform:translateY(-50%);margin:0;line-height:1}
+
+/* Back arrow at the left edge; label centered. */
+.web-preview #installView .action-bar button.primary.back{position:relative;justify-content:center;text-align:center;padding-left:32px;padding-right:32px}
+.web-preview #installView .action-bar button.primary.back>span{position:absolute;left:14px;top:50%;transform:translateY(-50%);margin:0;line-height:1}
+
+/* Text-only action buttons. */
+.web-preview #installView .action-bar button.primary.back,.web-preview #installView .action-bar button.primary.next,.web-preview #installView .action-bar button.primary#start{padding-left:12px;padding-right:12px;justify-content:center;text-align:center}
+
+/* Primary workspaces in the top bar; contextual navigation in the sidebar. */
+.web-preview .web-status-bar{gap:18px;align-items:center}
+.web-preview .web-status-bar .workspace-switch{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;flex:1;max-width:620px;width:auto;margin:0;padding:5px;border-radius:14px}
+.web-preview .web-status-bar .workspace-switch button{width:100%;min-width:0;min-height:42px;padding:8px 10px;margin:0;font-size:12px;text-align:center}
+.web-preview #workspaceConnectionBadge{margin-left:auto;flex-shrink:0}
+.web-preview #connectionNav{margin-top:24px}
+@media(max-width:760px){.web-preview .web-status-bar{flex-wrap:wrap;gap:10px}.web-preview .web-status-bar .workspace-switch{flex-basis:100%;max-width:none}.web-preview #connectionNav{margin-top:16px}.web-preview #connectionNav .admin-nav{width:100%}}
+
+/* Align all contextual sidebar headings. */
+.web-preview #connectionNav{margin-top:28px}
+.web-preview #connectionNav .side-caption{font-size:9px;font-weight:400;line-height:1.6;letter-spacing:1.6px;color:var(--muted);margin:0 0 14px}
+@media(max-width:760px){.web-preview #connectionNav{margin-top:16px}.web-preview #connectionNav .side-caption{display:none}}
+
+/* Browser-shaped tabs with a solid accent on the selected workspace. */
+.web-preview .web-status-bar .workspace-switch{background:transparent;border:0;border-radius:0;padding:0;gap:4px;align-items:end;overflow:visible}
+.web-preview .web-status-bar .workspace-switch button{position:relative;border:1px solid var(--line);border-bottom:0;border-radius:12px 12px 0 0;background:#181925;color:var(--muted);min-height:44px;margin:0;font-weight:500;transition:background .15s,color .15s}
+.web-preview .web-status-bar .workspace-switch button:hover{background:#242236;color:var(--text)}
+.web-preview .web-status-bar .workspace-switch button.selected{background:var(--purple);border-color:var(--purple);color:#241a35;font-weight:650;min-height:48px;box-shadow:none}
+.web-preview .web-status-bar .workspace-switch button.selected .mode-label{color:inherit}
+.web-preview .web-status-bar .workspace-switch button:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+.web-preview .web-status-bar{align-items:flex-end}.web-preview .web-status-bar .workspace-switch{margin-bottom:-1px}.web-preview #workspaceConnectionBadge{align-self:center}
+
+/* Increase primary tab labels by two pixels. */
+.web-preview .web-status-bar .workspace-switch button{font-size:14px}
+
+/* Browser tabs without a bright accent fill. */
+.web-preview .web-status-bar .workspace-switch button.selected{background:var(--bg);border-color:var(--line);color:var(--purple);font-weight:600;box-shadow:none}
+.web-preview .web-status-bar .workspace-switch button.selected::after{content:"";position:absolute;left:0;right:0;bottom:-2px;height:3px;background:var(--bg);pointer-events:none}
+
+/* Variant 1: text tabs with an underline only. */
+.web-preview .web-status-bar .workspace-switch{border:0;border-bottom:1px solid var(--line);background:transparent;border-radius:0;padding:0;gap:0}
+.web-preview .web-status-bar .workspace-switch button,.web-preview .web-status-bar .workspace-switch button:hover,.web-preview .web-status-bar .workspace-switch button.selected{background:transparent;border:0;border-radius:0;box-shadow:none;min-height:48px;color:var(--muted)}
+.web-preview .web-status-bar .workspace-switch button:hover{color:var(--text)}
+.web-preview .web-status-bar .workspace-switch button.selected{color:var(--purple);font-weight:600}
+.web-preview .web-status-bar .workspace-switch button.selected::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--purple);pointer-events:none}
+
+/* Accent selected tab while keeping its underline. */
+.web-preview .web-status-bar .workspace-switch button.selected,.web-preview .web-status-bar .workspace-switch button.selected:hover{background:var(--purple);color:#241a35;border-radius:10px;font-weight:650}
+.web-preview .web-status-bar .workspace-switch button.selected::after{left:12px;right:12px;bottom:-5px;height:2px;background:var(--purple)}
+.web-preview .web-status-bar .workspace-switch{padding-bottom:5px}
+
+/* Variant 4: accent selected button, no track or underline. */
+.web-preview .web-status-bar .workspace-switch{border:0;padding:0;background:transparent;gap:6px}
+.web-preview .web-status-bar .workspace-switch button.selected::after{content:none;display:none}
+
+/* Center the product name over its subtitle. */
+.web-preview .brand-copy{align-items:center;text-align:center}

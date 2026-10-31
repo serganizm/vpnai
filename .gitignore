@@ -41,3 +41,10 @@ build/
 
 # Local SSH trust database (public fingerprints only; never ship user data)
 ssh-hosts.json
+
+# Android generated files and private signing material
+android/.gradle/
+android/app/build/
+android/local.properties
+*.keystore
+*.jks

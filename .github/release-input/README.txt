@@ -1,0 +1,1 @@
+Locally built and emulator-tested Android APK, signed with the existing debug key. No private signing key is committed. The release workflow verifies its SHA-256 and compares every embedded payload file against tagged desktop/Android source before publishing. This input is excluded from the source distribution.

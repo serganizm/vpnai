@@ -30,7 +30,7 @@ with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as packag
         package.writestr(info,path.read_bytes(),compress_type=zipfile.ZIP_DEFLATED,compresslevel=9)
 with zipfile.ZipFile(archive) as package:
     if package.testzip() is not None:raise SystemExit('Invalid ZIP')
-    expected={'app','docs','readme.txt','macos.command','linux.sh','windows.bat'}
+    expected={'app','docs','android','readme.txt','macos.command','linux.sh','windows.bat'}
     if {pathlib.PurePosixPath(name).parts[1] for name in package.namelist()}!=expected:raise SystemExit('Unexpected distribution layout')
     for name in package.namelist():
         relative=pathlib.PurePosixPath(name).relative_to('VPNAI')

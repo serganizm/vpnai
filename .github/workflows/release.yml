@@ -6,7 +6,7 @@ on:
       tag:
         description: 'Existing release tag'
         required: true
-        default: 'v0.2.1'
+        default: 'v0.3.1'
   push:
     tags:
       - 'v[0-9]*'
@@ -96,25 +96,14 @@ jobs:
           pattern: native-*
           merge-multiple: true
           path: build/packages
-      - name: Verify all three targets and write checksums
-        run: |
-          python3 - <<'PYCODE'
-          import hashlib,os,pathlib,shutil
-          root=pathlib.Path('build');version=os.environ['RELEASE_TAG'];out=root/'release';out.mkdir()
-          names=[f'VPNAI-{version}-windows-x64.exe',f'VPNAI-{version}-linux-x64.tar.gz',f'VPNAI-{version}-macos-arm64.zip']
-          for name in names:
-              source=root/'packages'/name
-              if not source.is_file():raise SystemExit('Missing tested package: '+name)
-              shutil.copy2(source,out/name)
-          source=root/f'VPNAI-source-{version}.zip';shutil.copy2(source,out/source.name)
-          (out/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in sorted(out.iterdir())))
-          PYCODE
+      - name: Verify all four targets and build combined archive
+        run: python3 .github/scripts/collect_release.py
       - name: Publish release only after every target passed
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
           gh release create "$RELEASE_TAG" --verify-tag --draft \
-            --title "VPNAI $RELEASE_TAG — standalone" \
+            --title "VPNAI $RELEASE_TAG" \
             --notes-file docs/RELEASE_NOTES.md build/release/*
           gh release edit "$RELEASE_TAG" --draft=false

@@ -1,0 +1,29 @@
+plugins { id 'com.android.application'; id 'com.chaquo.python' }
+android {
+    namespace 'com.vpnai.local'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.vpnai.local'
+        minSdk 24
+        targetSdk 35
+        versionCode 30100
+        versionName '0.3.1'
+        testInstrumentationRunner 'com.vpnai.local.SmokeInstrumentation'
+        ndk { abiFilters 'arm64-v8a' }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    packaging { jniLibs { useLegacyPackaging = true } }
+}
+chaquopy {
+    defaultConfig {
+        version = '3.12'
+        if (System.getenv('VPNAI_BUILD_PYTHON')) { buildPython(System.getenv('VPNAI_BUILD_PYTHON')) }
+        pip {
+            if (System.getenv('VPNAI_PYTHON_WHEELS')) { options '--no-index', '--find-links', System.getenv('VPNAI_PYTHON_WHEELS') }
+            install 'paramiko==4.0.0'
+            install 'cryptography==42.0.8'
+            install 'bcrypt==3.2.2'
+            install 'PyNaCl==1.5.0'
+        }
+    }
+}
