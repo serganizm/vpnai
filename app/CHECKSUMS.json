@@ -112,5 +112,5 @@
   "linux.sh": "8a9d326f190fbe856d7a0ae4867976d64baff25c9aa3366f51408183fc61c461",
   "windows.bat": "0a0b05deb5eb24e6c1a8f6a22bb1dcf9b62fa369f72f57e8e96a98c587853c06",
   "app/diagnostics.py": "9962710414ff669d153eb4ed885c23a0b4350823c05773763e54ebbdcaae61d0",
-  "app/tests/test_diagnostics.py": "e9a29e9d891e496299eff89b46f2ed206e66e347bc4eed98c4c1b816a9ce96f0"
+  "app/tests/test_diagnostics.py": "f97062a1f32c7b20c7889613a2e7cfd325f5de3760aa5ae4d4ec57826d1910db"
 }

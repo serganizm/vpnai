@@ -29,7 +29,7 @@ class DiagnosticsTests(unittest.TestCase):
  def test_runtime_detects_ports_without_exposing_keys_or_changing_services(self):
   with tempfile.TemporaryDirectory() as tmp:
    server=pathlib.Path(tmp)/'server';server.mkdir();(server/'legacy.conf').write_text('server 10.77.0.0 255.255.255.0\nproto udp\nport 1194\n<key>\nPRIVATE-SECRET\n</key>\n')
-   script=diagnostics.RUNTIME.replace('/etc/openvpn/server',str(server)).replace("pathlib.Path('/etc/openvpn')",'pathlib.Path('+repr(str(pathlib.Path(tmp)/'empty'))+')')
+   script=diagnostics.RUNTIME.replace('/etc/openvpn/server',server.as_posix()).replace("pathlib.Path('/etc/openvpn')",'pathlib.Path('+repr(str(pathlib.Path(tmp)/'empty'))+')')
    commands=[]
    def run(args,**kwargs):
     commands.append(args)
