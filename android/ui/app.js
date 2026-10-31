@@ -1,23 +1,23 @@
 window.vpnaiDNSPreview=(()=>{
  const openInitially=new URL(location.href).searchParams.get('preview')==='dns';
- const state={provider:'unchanged',primary:'',secondary:'',include:false,dirty:false,current:null,busy:false,installBusy:false,lastApplyError:'',message:'Сначала считайте настройки сервера. Применение выполняется только по вашей команде.'};
+ const state={provider:'unchanged',primary:'',secondary:'',include:false,dirty:false,current:null,busy:false,installBusy:false,lastApplyError:'',reading:false,loadError:'',message:'Сначала считайте настройки сервера. Применение выполняется только по вашей команде.'};
  const presets={unchanged:['DNS клиента','Не передавать DNS'],google:['Google','8.8.8.8 · 8.8.4.4'],cloudflare:['Cloudflare','1.1.1.1 · 1.0.0.1'],custom:['Свои DNS','Публичные IPv4-адреса']};
  const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  function chosen(){return{provider:state.provider,servers:state.provider==='google'?['8.8.8.8','8.8.4.4']:state.provider==='cloudflare'?['1.1.1.1','1.0.0.1']:state.provider==='custom'?[state.primary,...state.secondary?[state.secondary]:[]]:[]};}
  function valid(){if(state.provider!=='custom')return true;return chosen().servers.every(value=>/^\d{1,3}(\.\d{1,3}){3}$/.test(value)&&value.split('.').every(x=>+x<=255))&&!!state.primary;}
  function dirty(){state.dirty=true;state.include=false;state.message='Выбор изменён. На сервере настройки пока прежние.';window.dispatchEvent(new Event('vpnai-dns-draft'));}
  async function api(operation,data={}){const response=await fetch('/api/admin/'+operation,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Token':sessionStorage.getItem('vpn-local-token')||''},body:JSON.stringify(data)});const answer=await response.json();if(!response.ok)throw Error(answer.error||'Не удалось выполнить DNS-операцию.');return answer;}
- function adopt(result){state.current=result;state.provider=result.consistent?result.provider:'custom';state.primary=result.servers[0]||'';state.secondary=result.servers[1]||'';state.dirty=false;state.include=false;window.dispatchEvent(new Event('vpnai-dns-draft'));}
- function panel(context,connected=window.vpnaiUnified?.connected||false){const custom=state.provider==='custom',addresses=chosen().servers;const current=state.current;const available=connected&&!state.busy&&!state.installBusy;
- const actual=current?(current.consistent?(current.servers.length?current.servers.join(' · ')+(current.route==='eu'?'':' · путь через EU не подтверждён'):'DNS не передаётся'): 'Настройки UDP и TCP различаются'):'Настройки не считаны';
- return `<section class="dns-panel" data-dns-panel="${context}" aria-label="DNS для VPN-клиентов"><div class="dns-heading"><div><span class="eyebrow">DNS</span><h2>DNS для VPN-клиентов</h2><p>Общая настройка для устройств, подключённых к этому VPN.</p></div><span class="dns-preview-badge">Локально</span></div>${context==='management'?`<div class="dns-current"><span>Сейчас на сервере</span><strong>${escape(actual)}${current?.incomplete?' · остались маршруты незавершённого применения':''}</strong><button type="button" class="secondary" data-dns-read ${available?'':'disabled'}>Считать с сервера</button></div>`:''}<div class="dns-options" role="group" aria-label="Провайдер DNS">${Object.entries(presets).map(([key,[title,detail]])=>`<button type="button" data-dns-provider="${key}" aria-pressed="${state.provider===key}" class="dns-option ${state.provider===key?'selected':''}" ${state.busy||state.installBusy?'disabled':''}><span class="dns-option-title">${title}<i aria-hidden="true"></i></span><small>${detail}</small></button>`).join('')}</div>${state.provider==='unchanged'?'<div class="dns-explanation">При применении DNS больше не будет передаваться клиентам. Будут использоваться настройки устройства и VPN-клиента.</div>':`<div class="dns-addresses"><label>Основной DNS<input data-dns-address="primary" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Например: 9.9.9.9" value="${escape(addresses[0]||'')}" ${custom&&!state.busy&&!state.installBusy?'':'readonly'}></label><label>Дополнительный DNS <small>необязательно</small><input data-dns-address="secondary" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Например: 149.112.112.112" value="${escape(addresses[1]||'')}" ${custom&&!state.busy&&!state.installBusy?'':'readonly'}></label></div><div class="dns-path"><span>Путь DNS-запросов</span><strong>Устройство → RU → EU → DNS</strong><p>Отдельные маршруты, без изменения ваших списков RU/EU.</p></div>`}<div class="dns-scope"><span>Все пользователи</span><span>UDP и TCP</span><span>После переподключения</span></div><p class="dns-client-note">Клиент должен принимать DNS от сервера. DNS самой ОС сервера не меняется. Собственные DoH-настройки приложений могут обходить этот выбор.</p><div class="dns-explanation">${context==='management'?'Перед применением создаётся копия настроек. OpenVPN перезапустится: текущие подключения прервутся, устройства потребуется переподключить.':'Настройка применяется только при запуске установки или обновления. Если не включать её в операцию, текущий DNS сохраняется.'}</div><div class="dns-actions">${context==='management'?`<button type="button" class="secondary" data-dns-probe ${available?'':'disabled'}>Проверить доступность</button><button type="button" class="primary" data-dns-apply ${available&&current?'':'disabled'}>Применить DNS</button>`:`<button type="button" class="secondary" data-dns-exclude ${state.busy||state.installBusy?'disabled':''}>Не менять при установке</button><button type="button" class="primary" data-dns-include ${state.busy||state.installBusy?'disabled':''}>Использовать при установке</button>`}</div>${state.lastApplyError?`<div class="notice" role="alert">Последняя ошибка применения: ${escape(state.lastApplyError)}</div>`:''}<p class="dns-feedback" role="status">${escape(state.busy?'Выполняется DNS-операция…':context==='installation'&&state.include?'DNS включён в параметры установки: '+(chosen().servers.join(' · ')||'DNS клиента'):state.message)}</p></section>`;
+ function adopt(result,announce=true){state.current=result;state.provider=result.consistent?result.provider:'custom';state.primary=result.servers[0]||'';state.secondary=result.servers[1]||'';state.dirty=false;state.include=false;if(announce)window.dispatchEvent(new CustomEvent('vpnai-dns-draft',{detail:{read:true}}));}
+ function panel(context,connected=window.vpnaiUnified?.connected||false){const custom=state.provider==='custom',addresses=chosen().servers;const current=state.current;const available=connected&&!state.busy&&!state.installBusy&&!state.reading;
+ const actual=current?(current.consistent?(current.servers.length?current.servers.join(' · ')+(current.route==='eu'?'':' · путь через EU не подтверждён'):'DNS не передаётся'): 'Настройки UDP и TCP различаются'):state.loadError?'Не удалось считать DNS: '+state.loadError:'Настройки не считаны';
+ return `<section class="dns-panel" data-dns-panel="${context}" aria-label="DNS для VPN-клиентов"><div class="dns-heading"><div><span class="eyebrow">DNS</span><h2>DNS для VPN-клиентов</h2><p>Общая настройка для устройств, подключённых к этому VPN.</p></div><span class="dns-preview-badge">Локально</span></div>${context==='management'?`<div class="dns-current"><span>Сейчас на сервере</span><strong>${escape(actual)}${current?.incomplete?' · остались маршруты незавершённого применения':''}</strong><button type="button" class="secondary" data-dns-read ${available?'':'disabled'}>Считать с сервера</button></div>`:`<div class="dns-current"><span>Сейчас на сервере</span><strong>${escape(actual)}${current?.incomplete?' · остались маршруты незавершённого применения':''}</strong></div>`}<div class="dns-options" role="group" aria-label="Провайдер DNS">${Object.entries(presets).map(([key,[title,detail]])=>`<button type="button" data-dns-provider="${key}" aria-pressed="${state.provider===key}" class="dns-option ${state.provider===key?'selected':''}" ${state.busy||state.installBusy?'disabled':''}><span class="dns-option-title">${title}<i aria-hidden="true"></i></span><small>${detail}</small></button>`).join('')}</div>${state.provider==='unchanged'?'<div class="dns-explanation">При применении DNS больше не будет передаваться клиентам. Будут использоваться настройки устройства и VPN-клиента.</div>':`<div class="dns-addresses"><label>Основной DNS<input data-dns-address="primary" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Например: 9.9.9.9" value="${escape(addresses[0]||'')}" ${custom&&!state.busy&&!state.installBusy?'':'readonly'}></label><label>Дополнительный DNS <small>необязательно</small><input data-dns-address="secondary" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Например: 149.112.112.112" value="${escape(addresses[1]||'')}" ${custom&&!state.busy&&!state.installBusy?'':'readonly'}></label></div><div class="dns-path"><span>Путь DNS-запросов</span><strong>Устройство → RU → EU → DNS</strong><p>Отдельные маршруты, без изменения ваших списков RU/EU.</p></div>`}<div class="dns-scope"><span>Все пользователи</span><span>UDP и TCP</span><span>После переподключения</span></div><p class="dns-client-note">Клиент должен принимать DNS от сервера. DNS самой ОС сервера не меняется. Собственные DoH-настройки приложений могут обходить этот выбор.</p><div class="dns-explanation">${context==='management'?'Перед применением создаётся копия настроек. OpenVPN перезапустится: текущие подключения прервутся, устройства потребуется переподключить.':'Настройка применяется только при запуске установки или обновления. Если не включать её в операцию, текущий DNS сохраняется.'}</div><div class="dns-actions">${context==='management'?`<button type="button" class="secondary" data-dns-probe ${available?'':'disabled'}>Проверить доступность</button><button type="button" class="primary" data-dns-apply ${available&&current?'':'disabled'}>Применить DNS</button>`:`<button type="button" class="secondary" data-dns-exclude ${state.busy||state.installBusy?'disabled':''}>Сохранить текущий DNS</button><button type="button" class="primary" data-dns-include ${state.busy||state.installBusy?'disabled':''}>Применить выбранный DNS</button>`}</div>${state.lastApplyError?`<div class="notice" role="alert">Последняя ошибка применения: ${escape(state.lastApplyError)}</div>`:''}<p class="dns-feedback" role="status">${escape(state.busy?'Выполняется DNS-операция…':state.reading?'Считываем текущий DNS с сервера…':context==='installation'&&state.include?'DNS включён в параметры операции: '+(chosen().servers.join(' · ')||'DNS клиента'):state.message)}</p></section>`;
  }
  function render(){document.querySelectorAll('[data-dns-panel]').forEach(el=>{el.outerHTML=panel(el.dataset.dnsPanel);});}
  document.addEventListener('click',async e=>{const b=e.target.closest('[data-dns-provider],[data-dns-read],[data-dns-probe],[data-dns-apply],[data-dns-include],[data-dns-exclude]');if(!b)return;e.stopImmediatePropagation();e.preventDefault();if(state.busy||state.installBusy||b.disabled)return;
  if(b.hasAttribute('data-dns-provider')){state.provider=b.dataset.dnsProvider;dirty();render();return;}
- if(b.hasAttribute('data-dns-exclude')){state.include=false;state.message='DNS не включён в установочную операцию. Текущие настройки будут сохранены.';window.dispatchEvent(new Event('vpnai-dns-draft'));render();return;}
+ if(b.hasAttribute('data-dns-exclude')){state.include=false;state.message='DNS не включён в операцию. Текущие настройки будут сохранены.';window.dispatchEvent(new Event('vpnai-dns-draft'));render();return;}
  if(!b.hasAttribute('data-dns-read')&&!valid()){state.message='Укажите один или два корректных публичных IPv4 DNS.';render();return;}
- if(b.hasAttribute('data-dns-include')){state.include=true;state.message='DNS включён в параметры установки.';window.dispatchEvent(new Event('vpnai-dns-draft'));render();return;}
+ if(b.hasAttribute('data-dns-include')){state.include=true;state.message='DNS включён в параметры операции.';window.dispatchEvent(new Event('vpnai-dns-draft'));render();return;}
  if(b.hasAttribute('data-dns-apply')&&!confirm('Применить DNS для всех VPN-клиентов? Будет создана резервная копия и перезапущен OpenVPN на российском сервере. Текущие подключения прервутся. Продолжить?'))return;
  state.busy=true;render();try{
  if(b.hasAttribute('data-dns-read')){adopt(await api('dns-status'));state.message=state.current.consistent?'Настройки прочитаны. Сервер не изменён.':'DNS UDP/TCP различаются. Выберите общую настройку для обоих профилей.';}
@@ -28,7 +28,16 @@ window.vpnaiDNSPreview=(()=>{
  window.addEventListener('vpnai-installer-busy',e=>{state.installBusy=!!e.detail;render();});
  document.addEventListener('input',e=>{if(e.target.dataset.dnsAddress){state[e.target.dataset.dnsAddress]=e.target.value.trim();dirty();document.querySelectorAll('[data-dns-address="'+e.target.dataset.dnsAddress+'"]').forEach(input=>{if(input!==e.target)input.value=e.target.value;});}});
  const slot=document.getElementById('installationDNSPreview');if(slot)slot.innerHTML=panel('installation');
- return {panel,openInitially,installation:()=>state.include?chosen():undefined,description:()=>state.include?(chosen().servers.join(' · ')||'DNS клиента'):'Сохранить текущие настройки',restore:d=>{if(d){state.provider=d.provider;state.primary=d.servers?.[0]||'';state.secondary=d.servers?.[1]||'';state.include=true;render();}}};
+ function syncFromServer(result,automatic,error=''){
+  state.loadError=error||'';
+  if(!result){state.current=null;state.message='DNS не считан. Текущие DNS не будут изменены автоматически.';render();return;}
+  state.current=result;
+  if(!automatic||(!state.dirty&&!state.include)){
+   adopt(result,false);state.message=result.consistent?'Текущий DNS получен вместе с настройками сервера. Без включения в операцию он сохранится.':'DNS UDP и TCP различаются. Выберите общий DNS, только если хотите их изменить.';
+  }
+  render();
+ }
+ return {panel,openInitially,syncFromServer,setReading:value=>{state.reading=!!value;render();},exclude:()=>{state.include=false;render();},installation:()=>state.include?chosen():undefined,description:()=>state.include?(chosen().servers.join(' · ')||'DNS клиента'):'Сохранить текущие настройки',restore:d=>{if(d){state.provider=d.provider;state.primary=d.servers?.[0]||'';state.secondary=d.servers?.[1]||'';state.include=true;render();}}};
 })();
 window.vpnaiServerFiles={adapters:[]};
 window.vpnaiUnified={installerReady:false,installDraft:null};
@@ -2343,7 +2352,7 @@ var qrcode = function() {
 const $=id=>document.getElementById(id);
 let token=location.hash.slice(1)||sessionStorage.getItem('vpn-local-token')||'';
 if(location.hash){sessionStorage.setItem('vpn-local-token',token);history.replaceState(null,'',location.pathname);}
-let backupRows=[],backupsLoading=false,currentConfig=null,currentConfigLoading=false;
+let backupRows=[],backupsLoading=false,currentConfig=null,currentConfigLoading=false,currentConfigDirty=false;
 let page=1,selected={action:'install',routing:'split',auth:'password'},pins={},jobId='',pollTimer=null,running=false,sshAvailable=false,platform='macos';
 const actionNames={install:'Установить',fresh:'Установить заново',resume:'Обновить/Восстановить',verify:'Проверить VPN',check:'Проверить серверы',remove:'Удалить'};
 const routeNames={split:'Раздельные маршруты',full_mixed:'Весь трафик через VPN',full_nl:'Весь трафик через зарубежный сервер'};
@@ -2352,7 +2361,7 @@ function setInstallConnection(connected){const button=$('modeInstall');button.cl
 function message(text){$('error').textContent=text;$('error').classList.toggle('hidden',!text);if(text)$('error').scrollIntoView({behavior:'smooth',block:'center'});}
 function choiceGroup(target,key,items){
  const box=$(target);box.replaceChildren();
- for(const [value,title,description] of items){const b=document.createElement('button');b.type='button';b.className='choice'+(selected[key]===value?' selected':'');b.setAttribute('aria-pressed',selected[key]===value);const strong=document.createElement('strong');strong.textContent=title;const p=document.createElement('p');p.textContent=description;b.append(strong,p);b.onclick=()=>{if(running)return;selected[key]=value;choiceGroup(target,key,items);$('confirmation').checked=false;updateRouteNotice();updateRestoreOptions();scheduleSession();if(key==='action'&&value==='resume'&&$('ruHost').value&&$('nlHost').value)loadBackups();};box.append(b);}
+ for(const [value,title,description] of items){const b=document.createElement('button');b.type='button';b.className='choice'+(selected[key]===value?' selected':'');b.setAttribute('aria-pressed',selected[key]===value);const strong=document.createElement('strong');strong.textContent=title;const p=document.createElement('p');p.textContent=description;b.append(strong,p);b.onclick=()=>{if(running)return;const previous=selected[key];selected[key]=value;if(key!=='action'&&currentConfig)currentConfigDirty=true;choiceGroup(target,key,items);$('confirmation').checked=false;updateRouteNotice();updateRestoreOptions();scheduleSession();if(key==='action'&&value==='resume'&&$('ruHost').value&&$('nlHost').value){if(previous!==value)currentConfigDirty=false;loadCurrentConfiguration(true);}};box.append(b);}
 }
 let sshAliasCatalog=[];
 function aliasHTML(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -2387,31 +2396,41 @@ function resetBackupList(){
  if(!$('restoreBackup'))return;backupRows=[];$('restoreBackup').replaceChildren(new Option('Обновить текущую конфигурацию',''));$('backupStatus').textContent='После ввода данных серверов загрузите список архивов.';
 }
 function currentPairKey(){return ['ru','nl'].map(r=>$(r+'Host').value+':'+$(r+'Port').value).join('|');}
-function applyCurrentConfiguration(config){
- currentConfig={...config,pair:currentPairKey()};
+function applyCurrentConfiguration(config,automatic=false){
+ currentConfig={...config,pair:currentPairKey()};currentConfigDirty=false;
  selected.routing=config.config.routing_mode;selected.auth=config.config.auth_mode;$('vpnPort').value=config.config.ovpn_port;
  $('ruRoutes').value=config.ru_routes.join('\n');$('euRoutes').value=config.eu_routes.join('\n');
  for(const id of ['ruRoutes','euRoutes'])$(id).oninput();
  document.querySelectorAll('#routes .choice').forEach((b,i)=>{const active=['split','full_mixed','full_nl'][i]===selected.routing;b.classList.toggle('selected',active);b.setAttribute('aria-pressed',active);});
  document.querySelectorAll('#authChoices .choice').forEach((b,i)=>{const active=['password','certificate'][i]===selected.auth;b.classList.toggle('selected',active);b.setAttribute('aria-pressed',active);});
- $('currentConfigStatus').textContent='Настройки и списки получены с сервера. Пользователей: '+config.user_count+'. Теперь можно внести изменения.';
+ $('currentConfigStatus').textContent=config.legacy?'Настройки прочитаны из действующего VPN. Пользователей: '+config.user_count+'. Для этой установки доступна смена входа и выбор DNS без переустановки. Пользователи, сертификаты, порт и маршруты сохраняются.':'Настройки и списки получены с сервера. Пользователей: '+config.user_count+'. Теперь можно внести изменения.';
+ $('routesSourceStatus').textContent='Списки получены с сервера: RU — '+config.ru_routes.length+', RU-EU — '+config.eu_routes.length+'.';
+ if(config.legacy)$('updatePackages').value='no';
+ window.vpnaiDNSPreview.syncFromServer(config.dns,automatic,config.dns_error);
  updateRouteNotice();updateRestoreOptions();scheduleSession();
 }
-async function loadCurrentConfiguration(){
+async function loadCurrentConfiguration(automatic=false){
+ if(automatic&&currentConfigDirty&&currentConfig){$('currentConfigStatus').textContent='Показаны загруженные настройки с вашими изменениями. Автоматическое чтение не сбрасывает введённые данные; кнопка загрузки перечитает их с сервера.';return;}
  if(running||currentConfigLoading)return;currentConfigLoading=true;$('restoreBackup').value='';$('confirmation').checked=false;message('');lockForm(true);
- try{const d={...data(),restore_backup:'',action:'check',ru_routes:'',eu_routes:'',initial_user:'user1',comment:''};if(!(await prepareSSH(d)))return;applyCurrentConfiguration(await api('/api/update-config',d));}
+ $('currentConfigStatus').textContent='Читаем текущие настройки и списки с сервера…';const requestedPair=currentPairKey();
+ try{const d={...data(),dns:undefined,restore_backup:'',action:'check',ru_routes:'',eu_routes:'',initial_user:'user1',comment:''};if(!(await prepareSSH(d)))return;const result=await api('/api/update-config',d);if(requestedPair!==currentPairKey()||selected.action!=='resume')return;applyCurrentConfiguration(result,automatic);}
  catch(e){message(e.message);$('currentConfigStatus').textContent='Не удалось загрузить настройки. Обновление не будет запущено без актуальной конфигурации.';}
  finally{currentConfigLoading=false;lockForm(false);}
 }
-$('loadCurrentConfig').onclick=loadCurrentConfiguration;
+$('loadCurrentConfig').onclick=()=>loadCurrentConfiguration(false);
+for(const id of ['ruRoutes','euRoutes','vpnPort'])$(id).addEventListener('input',()=>{if(currentConfig)currentConfigDirty=true;});
 function updateRestoreOptions(){
  if(!$('restoreOptions'))return;$('restoreOptions').classList.toggle('hidden',selected.action!=='resume');
  const archive=selected.action==='resume'&&!!$('restoreBackup').value;
- const existing=selected.action==='resume'&&!archive&&currentConfig&&currentConfig.user_count>0;
+ const legacy=selected.action==='resume'&&!archive&&currentConfig?.legacy===true;
+ const existing=legacy||selected.action==='resume'&&!archive&&currentConfig&&currentConfig.user_count>0;
  $('initialUser').disabled=running||existing;$('comment').disabled=running||existing;
  $('initialUserHint').textContent=existing?'Существующие пользователи будут сохранены. Новый пользователь не создаётся.':'Пользователь создаётся при установке или если при обновлении на сервере нет пользователей.';
- for(const id of ['ruRoutes','euRoutes','vpnPort'])$(id).disabled=running||archive;
- document.querySelectorAll('#routes .choice,#authChoices .choice').forEach(button=>button.disabled=running||archive);
+ for(const id of ['ruRoutes','euRoutes']){$(id).disabled=running||archive;$(id).readOnly=legacy;}
+ $('vpnPort').disabled=running||archive||legacy;$('updatePackages').disabled=running||legacy;
+ $('installationDNSPreview').classList.remove('hidden');
+ document.querySelectorAll('#routes .choice').forEach(button=>button.disabled=running||archive||legacy);
+ document.querySelectorAll('#authChoices .choice').forEach(button=>button.disabled=running||archive);
 }
 async function loadBackups(){
  if(backupsLoading||running)return;message('');backupsLoading=true;$('loadBackups').disabled=true;lockForm(true);
@@ -2445,15 +2464,15 @@ $('restoreBackup').onchange=()=>{
 function applyMode(){$('sshMissing').classList.toggle('hidden',sshAvailable);invalidatePins();updateRestoreOptions();if(page===3)review();}
 for(const [id,countId] of [['ruRoutes','ruCount'],['euRoutes','euCount']])$(id).oninput=()=>{$(countId).textContent=$(id).value.split('\n').filter(x=>x.split('#')[0].trim()).length+' записей';};
 function data(){
- const d={update_revision:currentConfig?.revision||'',update_user_count:currentConfig?.user_count||0,update_loaded_pair:currentConfig?.pair||'',restore_backup:selected.action==='resume'?$('restoreBackup').value:'',action:selected.action,routing:selected.routing,auth:selected.auth,initial_user:selected.action==='resume'&&!$('restoreBackup').value&&currentConfig?.user_count>0?'user1':$('initialUser').value,comment:$('comment').value,vpn_port:$('vpnPort').value,update_packages:$('updatePackages').value==='yes',ru_routes:$('ruRoutes').value,eu_routes:$('euRoutes').value,confirmed:$('confirmation').checked,dns:window.vpnaiDNSPreview.installation()};
+ const d={update_revision:currentConfig?.revision||'',update_user_count:currentConfig?.user_count||0,update_loaded_pair:currentConfig?.pair||'',update_legacy:currentConfig?.legacy===true,update_dirty:currentConfigDirty,restore_backup:selected.action==='resume'?$('restoreBackup').value:'',action:selected.action,routing:selected.routing,auth:selected.auth,initial_user:selected.action==='resume'&&!$('restoreBackup').value&&currentConfig?.user_count>0?'user1':$('initialUser').value,comment:$('comment').value,vpn_port:$('vpnPort').value,update_packages:$('updatePackages').value==='yes',ru_routes:$('ruRoutes').value,eu_routes:$('euRoutes').value,confirmed:$('confirmation').checked,dns:window.vpnaiDNSPreview.installation()};
  for(const role of ['ru','nl'])d[role]={host:$(role+'Host').value,alias:$(role+'Host').dataset.sshAlias||'',port:$(role+'Port').value,user:'root',method:$(role+'Method').value,password:$(role+'Password').value,key:$(role+'Key').value,key_path:$(role+'KeyPath').value,passphrase:$(role+($(role+'Method').value==='local-key'?'LocalPassphrase':'Passphrase')).value,fingerprint:pins[role]||''};return d;
 }
 async function api(path,payload){const options={headers:{'X-Local-Token':token}};if(payload!==undefined){options.method='POST';options.headers['Content-Type']='application/json';options.body=JSON.stringify(payload);}const r=await fetch(path,options);const answer=await r.json();if(!r.ok)throw Error(answer.error||'Ошибка запроса.');return answer;}
-function show(n){if(n<1){window.dispatchEvent(new Event('vpnai-open-connection'));return;}if(running&&n!==3)return;page=n;message('');document.querySelectorAll('.page').forEach(el=>el.classList.toggle('hidden',Number(el.dataset.page)!==n));document.querySelectorAll('.nav').forEach(el=>el.classList.toggle('active',Number(el.dataset.page)===n));if(n===3)review();if(n===1&&selected.action==='resume'&&!$('restoreBackup').value&&!currentConfig&&!running)loadCurrentConfiguration();window.scrollTo({top:0,behavior:'smooth'});}
+function show(n){if(n<1){window.dispatchEvent(new Event('vpnai-open-connection'));return;}if(running&&n!==3)return;page=n;message('');document.querySelectorAll('.page').forEach(el=>el.classList.toggle('hidden',Number(el.dataset.page)!==n));document.querySelectorAll('.nav').forEach(el=>el.classList.toggle('active',Number(el.dataset.page)===n));if(n===3)review();if((n===1||n===2)&&selected.action==='resume'&&!$('restoreBackup').value&&$('ruHost').value&&$('nlHost').value&&!running)loadCurrentConfiguration(true);window.scrollTo({top:0,behavior:'smooth'});}
 document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>show(Number(b.dataset.page)));
 document.querySelectorAll('.next').forEach(b=>b.onclick=()=>show(Math.min(3,page+1)));
 document.querySelectorAll('.back').forEach(b=>b.onclick=()=>show(Math.max(0,page-1)));
-function review(){const d=data();const rows=[['Российский сервер',d.ru.host||'Не указан'],['Зарубежный сервер',d.nl.host||'Не указан'],['Действие',actionNames[d.action]],...(d.action==='resume'?[['Источник',d.restore_backup||'Обновить текущую конфигурацию']]:[]),['Маршрутизация',routeNames[d.routing]],['Авторизация',authNames[d.auth]],['Обновить пакеты ОС',d.update_packages?'Да':'Нет'],['Пользователь',d.action==='resume'&&!d.restore_backup&&currentConfig?.user_count>0?'Существующие сохраняются; новый не создаётся':d.initial_user],['Список RU',d.restore_backup?'Из выбранного архива':d.ru_routes.split('\n').filter(x=>x.split('#')[0].trim()).length+' записей'],['Список RU-EU',d.restore_backup?'Из выбранного архива':d.eu_routes.split('\n').filter(x=>x.split('#')[0].trim()).length+' записей']];rows.push(['DNS для VPN-клиентов',d.restore_backup?'Из резервной копии':window.vpnaiDNSPreview.description()]);$('summary').replaceChildren();for(const [title,value] of rows){const item=document.createElement('div');item.className='summary-item';const k=document.createElement('small');k.textContent=title;const v=document.createElement('strong');v.textContent=value;item.append(k,v);$('summary').append(item);}$('destructive').classList.toggle('hidden',!(['fresh','remove'].includes(d.action)||!!d.restore_backup));$('start').textContent=actionNames[d.action];$('destructiveDescription').textContent=d.restore_backup?'Пользователи, ключи, профили и маршруты будут заменены содержимым выбранной пары архивов. Перед заменой текущее состояние обоих серверов будет сохранено в защитные копии. На зарубежном сервере будет использован автоматически проверенный соответствующий архив.':d.action==='fresh'?'На обоих серверах будут созданы закрытые резервные копии, удалены компоненты текущего VPN, его пользователи, профили и маршруты, затем выполнена новая установка с параметрами формы.':'На обоих серверах будут созданы закрытые резервные копии и удалены компоненты текущего VPN, его пользователи, профили и маршруты. Системные пакеты и резервные архивы сохранятся. Новая установка выполняться не будет.';$('reviewSubtitle').textContent='Будут использованы два указанных сервера. Данные подключения хранятся только в памяти текущего запуска.';}
+function review(){const d=data();const rows=[['Российский сервер',d.ru.host||'Не указан'],['Зарубежный сервер',d.nl.host||'Не указан'],['Действие',actionNames[d.action]],...(d.action==='resume'?[['Источник',d.restore_backup||'Обновить текущую конфигурацию']]:[]),['Маршрутизация',routeNames[d.routing]],['Авторизация',authNames[d.auth]],['Обновить пакеты ОС',d.update_packages?'Да':'Нет'],['Пользователь',d.action==='resume'&&!d.restore_backup&&currentConfig?.user_count>0?'Существующие сохраняются; новый не создаётся':d.initial_user],['Список RU',d.restore_backup?'Из выбранного архива':d.ru_routes.split('\n').filter(x=>x.split('#')[0].trim()).length+' записей'],['Список RU-EU',d.restore_backup?'Из выбранного архива':d.eu_routes.split('\n').filter(x=>x.split('#')[0].trim()).length+' записей']];rows.push(['DNS для VPN-клиентов',d.restore_backup?'Из резервной копии':window.vpnaiDNSPreview.description()]);$('summary').replaceChildren();for(const [title,value] of rows){const item=document.createElement('div');item.className='summary-item';const k=document.createElement('small');k.textContent=title;const v=document.createElement('strong');v.textContent=value;item.append(k,v);$('summary').append(item);}$('destructive').classList.toggle('hidden',!(['fresh','remove'].includes(d.action)||!!d.restore_backup));$('start').textContent=actionNames[d.action];$('destructiveDescription').textContent=d.restore_backup?'Пользователи, ключи, профили и маршруты будут заменены содержимым выбранной пары архивов. Перед заменой текущее состояние обоих серверов будет сохранено в защитные копии. На зарубежном сервере будет использован автоматически проверенный соответствующий архив.':d.action==='fresh'?'На обоих серверах будут созданы закрытые резервные копии, удалены компоненты текущего VPN, его пользователи, профили и маршруты, затем выполнена новая установка с параметрами формы.':'На обоих серверах будут созданы закрытые резервные копии и удалены компоненты текущего VPN, его пользователи, профили и маршруты. Системные пакеты и резервные архивы сохранятся. Новая установка выполняться не будет.';$('reviewSubtitle').textContent='Будут использованы два указанных сервера. Данные подключения хранятся только в памяти текущего запуска.';if(currentConfig?.legacy&&d.action==='resume'&&!d.restore_backup)$('reviewSubtitle').textContent='Будет применён выбранный способ входа и DNS, если вы включили их в обновление. Пользователи, сертификаты, порт и маршруты сохранятся; компоненты VPN не переустанавливаются.';}
 
 function lockForm(lock){window.dispatchEvent(new CustomEvent('vpnai-installer-busy',{detail:lock}));running=lock;document.querySelectorAll('input,select,textarea,.choice,.nav').forEach(el=>el.disabled=lock);$('runControls').classList.toggle('hidden',lock||!!jobId);updateRestoreOptions();}
 async function prepareSSH(d){
@@ -2470,7 +2489,7 @@ async function prepareSSH(d){
  return true;
 }
 $('start').onclick=async()=>{
- message('');const d=data();lockForm(true);$('start').disabled=true;
+ message('');const d=data();if(currentConfig?.legacy&&d.action==='resume'&&!d.restore_backup){if(!confirm('Применить способ входа и выбранные DNS без переустановки VPN? Если DNS не включён в обновление, он сохранится. Пользователи, сертификаты и маршруты сохранятся. Активные подключения прервутся. После операции нужно импортировать обновлённые профили и переподключить устройства.'))return;d.legacy_confirmed=true;}lockForm(true);$('start').disabled=true;
  try{
   if(d.action==='resume'&&!d.restore_backup&&!currentConfig)throw Error('Сначала загрузите текущие настройки сервера.');
   if((['fresh','remove'].includes(d.action)||d.restore_backup)&&!d.confirmed)throw Error('Установите флажок «Я подтверждаю» после прочтения описания.');
@@ -2502,7 +2521,7 @@ function clearSessionView(){
  $('summary').replaceChildren();$('log').replaceChildren();$('result').textContent='';
  document.querySelectorAll('button,input,select,textarea').forEach(el=>el.disabled=true);
 }
-window.addEventListener('vpnai-dns-draft',()=>scheduleSession());
+window.addEventListener('vpnai-dns-draft',event=>{if(currentConfig&&!event.detail?.read)currentConfigDirty=true;scheduleSession();});
 function scheduleSession(){if(!sessionReady)return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>api('/api/session',data()).catch(()=>{}),200);}
 function restoreSession(saved){
  if(terminated)return;
@@ -2517,7 +2536,7 @@ function restoreSession(saved){
  }
  choiceGroup('actions','action',actionItems);document.querySelectorAll('#routes .choice').forEach((b,i)=>{const keys=['split','full_mixed','full_nl'];b.classList.toggle('selected',keys[i]===selected.routing);b.setAttribute('aria-pressed',keys[i]===selected.routing);});
  document.querySelectorAll('#authChoices .choice').forEach((b,i)=>{const key=i?'certificate':'password';b.classList.toggle('selected',key===selected.auth);b.setAttribute('aria-pressed',key===selected.auth);});
- if(saved.update_revision&&saved.update_loaded_pair===currentPairKey()){currentConfig={revision:saved.update_revision,user_count:saved.update_user_count||0,pair:saved.update_loaded_pair};$('currentConfigStatus').textContent='Загруженные настройки и изменения восстановлены из текущего сеанса.';}for(const id of ['ruRoutes','euRoutes'])$(id).oninput();updateRouteNotice();updateRestoreOptions();
+ if(saved.update_revision&&saved.update_loaded_pair===currentPairKey()){currentConfig={revision:saved.update_revision,user_count:saved.update_user_count||0,pair:saved.update_loaded_pair,legacy:saved.update_legacy===true};currentConfigDirty=saved.update_dirty===true;$('currentConfigStatus').textContent='Загруженные настройки и изменения восстановлены из текущего сеанса.';}for(const id of ['ruRoutes','euRoutes'])$(id).oninput();updateRouteNotice();updateRestoreOptions();
 }
 document.addEventListener('input',event=>{if(event.target.id!=='confirmation')$('confirmation').checked=false;scheduleSession();});
 document.addEventListener('change',()=>scheduleSession());
@@ -2608,6 +2627,23 @@ function bytes(n){if(n===undefined||n===null)return '—';let unit=0;const units
 function duration(n){if(n===null||n===undefined)return '—';n=Math.max(0,Math.floor(n));return n>=86400?Math.floor(n/86400)+' дн. '+Math.floor(n%86400/3600)+' ч.':n>=3600?Math.floor(n/3600)+' ч. '+Math.floor(n%3600/60)+' мин':Math.floor(n/60)+' мин';}
 function acceptSnapshot(data){snapshot=data;users=(data.users||[]).map(u=>{const sessions=(data.sessions||[]).filter(s=>s.name===u.name);return {...u,sessions,online:sessions.length>0,clientIp:sessions.map(s=>s.client_ip).join(', '),ip:sessions.map(s=>s.vpn_ip).join(', ')||'—',since:sessions.map(s=>duration(s.since?Date.now()/1000-s.since:null)).join(', '),traffic:bytes(sessions.reduce((total,s)=>total+s.bytes_received+s.bytes_sent,0)),sessionCount:sessions.length};});updateIndicators();}
 function updateIndicators(){for(const id of ['modeAdmin']){el(id).classList.toggle('server-connected',snapshot.connected===true);el(id).querySelector('.mode-connection-dot').setAttribute('aria-label',snapshot.connected?'Соединение с серверами проверено':'Нет подтверждённого соединения');}syncMobileConnectionBadge();}
+let managementRead=null;
+function loadManagementData(){
+ if(managementRead)return managementRead;
+ if(busy)return Promise.resolve();
+ busy=true;window.vpnaiDNSPreview.setReading(true);
+ managementRead=(async()=>{
+  try{
+   await refresh();
+   if(snapshot.connected){
+    try{window.vpnaiDNSPreview.syncFromServer(await request('dns-status'),true);}
+    catch(error){window.vpnaiDNSPreview.syncFromServer(null,true,error.message);toast('Данные управления прочитаны, но DNS не считан: '+error.message);}
+   }else window.vpnaiDNSPreview.syncFromServer(null,true,'Нет подтверждённого подключения к обоим серверам');
+  }catch(error){snapshot.connected=false;updateIndicators();toast('Не удалось обновить данные с серверов: '+error.message);}
+  finally{busy=false;managementRead=null;window.vpnaiDNSPreview.setReading(false);if(mode==='admin')render();}
+ })();
+ return managementRead;
+}
 async function refresh(){acceptSnapshot(await request('status'));if(snapshot.connected)lists=await request('routes');render();}
 async function operation(action,data={},reload=true){if(busy)return;busy=true;document.querySelectorAll('.admin-modal button').forEach(b=>b.disabled=true);try{const answer=await request(action,data);if(reload){try{await refresh();}catch(e){snapshot.connected=false;updateIndicators();toast('Операция выполнена, но данные не обновились: '+e.message);}}return answer;}finally{busy=false;document.querySelectorAll('.admin-modal button').forEach(b=>b.disabled=false);}}
 const pages={overview:['01','Управление'],profiles:['02','Конфигурации'],routes:['03','Маршрутизация']};
@@ -2649,7 +2685,7 @@ function setMode(m){
  el('adminView').classList.toggle('hidden',m==='install');el('adminNav').classList.toggle('hidden',m!=='admin');
  for(const [id,value] of [['modeConnection','connection'],['modeInstall','install'],['modeAdmin','admin']]){el(id).classList.toggle('selected',m===value);el(id).setAttribute('aria-pressed',m===value?'true':'false');}
  if(m==='install'){el('installConnectionHint').innerHTML=!snapshot.connected?connectionHint():'';window.dispatchEvent(new Event('vpnai-open-installation'));}else render();
- syncMobileConnectionBadge();window.scrollTo(0,0);
+ syncMobileConnectionBadge();if(m==='admin')loadManagementData();window.scrollTo(0,0);
 }
 
 function modal(title,body,submit,onSubmit){document.querySelector('.admin-modal')?.remove();const d=document.createElement('div');d.className='admin-modal';d.innerHTML=`<form class="modal-box" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><span class="demo-label">Управление сервером</span><h2 id="dialogTitle">${title}</h2>${body}<div class="error hidden" role="alert"></div><div class="modal-actions"><button type="button" class="secondary" data-close-modal>Закрыть</button>${submit?`<button type="submit" class="primary">${submit}</button>`:''}</div></form>`;document.body.append(d);d.querySelector('[data-close-modal]').onclick=()=>{if(!busy)d.remove();};d.onclick=e=>{if(e.target===d&&!busy)d.remove();};d.querySelector('form').onsubmit=async e=>{e.preventDefault();if(busy)return;const error=d.querySelector('.error');error.classList.add('hidden');try{if(await onSubmit?.(d)!==false)d.remove();}catch(e){error.textContent=e.message;error.classList.remove('hidden');}};d.querySelector('input,button')?.focus();return d;}
@@ -2679,14 +2715,14 @@ document.addEventListener('click',async e=>{const target=e.target.closest('butto
 if(target.dataset.mobileServer){mobileServer=target.dataset.mobileServer;render();return;}
 if(target.hasAttribute('data-open-shared-connection')){setMode('connection');return;}if(target.dataset.nextWorkspace){setMode(target.dataset.nextWorkspace);return;}
 if(target.dataset.adminPage==='connection'){setMode('connection');return;}
-if(target.dataset.adminPage){section=target.dataset.adminPage;render();window.scrollTo(0,0);return;}
+if(target.dataset.adminPage){section=target.dataset.adminPage;render();loadManagementData();window.scrollTo(0,0);return;}
 if(target.dataset.routeTab){routeTab=target.dataset.routeTab;render();return;}
 const a=target.dataset.adminAction;
 if(a==='connect'){busy=true;try{await connect();}finally{busy=false;}return;}
 if(a==='disconnect'){await operation('disconnect',{},false);acceptSnapshot({connected:false,servers:{},users:[],sessions:[],warnings:[]});lists={ru:[],eu:[],iplist:[]};section='overview';setMode('connection');return;}
 if(!target.closest('#adminView,.admin-modal'))return;
 if(!requireConnection())return;
-if(a==='refresh'){await refresh();return;}
+if(a==='refresh'){await loadManagementData();return;}
 if(target.dataset.user){const name=target.dataset.user;modal(esc(name),`<p>Управление доступом пользователя.</p><div class="choice-stack"><button type="button" class="choice" data-profile="${esc(name)}">Конфигурации UDP / TCP</button><button type="button" class="choice" data-password="${esc(name)}">Пароль, комментарий и QR-код</button><button type="button" class="choice danger-text" data-delete-user="${esc(name)}">Удалить пользователя</button></div>`);}
 if(target.dataset.password)await editCredentials(target.dataset.password);
 if(target.dataset.profile)profiles(target.dataset.profile);

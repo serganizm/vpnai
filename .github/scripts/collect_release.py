@@ -27,3 +27,9 @@ with zipfile.ZipFile(combined,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as archi
 with zipfile.ZipFile(combined) as archive:assert archive.testzip() is None
 (out/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in sorted(out.iterdir()) if p.name!='SHA256SUMS.txt'))
 print('Verified release files:',*[p.name for p in sorted(out.iterdir())],sep='\n')
+
+# Release pages resolve relative documentation links outside the source tree.
+notes=(root/'docs/RELEASE_NOTES.md').read_text()
+for name in ('LOCAL_LEGACY.md','DNS.md'):
+ notes=notes.replace('('+name+')','(https://github.com/'+os.environ.get('GITHUB_REPOSITORY','serganizm/vpnai')+'/blob/'+version+'/docs/'+name+')')
+(root/'build/release-notes.md').write_text(notes)

@@ -1,4 +1,4 @@
-# Android 0.3.3
+# Android 0.4.1
 
 Android 7+ ARM64. Локальный Python backend и SSH работают внутри приложения.
 

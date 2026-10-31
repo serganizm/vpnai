@@ -80,7 +80,10 @@ def offline_check():
     import urllib.error
     import bundled_check
     result = bundled_check.self_test()
-    import dns_backend
+    import dns_backend,legacy_update_remote,ssh_guard
+    assert ssh_guard.LEASE_SECONDS == 45
+    result['ssh_guard'] = True
+    result['legacy_update'] = True
     assert dns_backend.validate({'provider':'google'})['servers'] == ['8.8.8.8','8.8.4.4']
     assert 'def rule_key(' in dns_backend.REMOTE
     result['dns_backend'] = True

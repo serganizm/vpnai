@@ -6,7 +6,7 @@ on:
       tag:
         description: 'Existing release tag'
         required: true
-        default: 'v0.3.3'
+        default: 'v0.4.1'
   push:
     tags:
       - 'v[0-9]*'
@@ -105,5 +105,5 @@ jobs:
         run: |
           gh release create "$RELEASE_TAG" --verify-tag --draft \
             --title "VPNAI $RELEASE_TAG" \
-            --notes-file docs/RELEASE_NOTES.md build/release/*
+            --notes-file build/release-notes.md build/release/*
           gh release edit "$RELEASE_TAG" --draft=false

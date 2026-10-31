@@ -73,7 +73,7 @@ class AdminService:
         if operation=='connection-session':return self.connection_session()
         if operation=='save-connection-session':return self.connection_session(data)
         with self.app.lock,self.lock:
-            if self.app.stopping or any(j.status=='running' for j in self.app.jobs.values()):raise backend.UserError('Дождитесь завершения текущей установки.')
+            if self.app.stopping or any(j.status=='running' for j in self.app.jobs.values()):raise backend.UserError('Дождитесь завершения текущей операции.')
             if operation=='connect':return self.connect(data)
             if operation=='disconnect':self.close();return {'connected':False}
             if operation=='status':return self.snapshot()

@@ -1,4 +1,5 @@
 """Local controller: explicit SSH targets, in-memory credentials and background jobs."""
+import ssh_guard
 import ast,base64,contextlib,hashlib,importlib.util,io,ipaddress,json,pathlib,re,secrets,shlex,socket,sys,threading,time,zipfile
 ROOT=pathlib.Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('vpn_engine',ROOT/'core/engine.py');engine=importlib.util.module_from_spec(spec);spec.loader.exec_module(engine)
@@ -67,6 +68,7 @@ def validate(data):
     if backup and clean['action']!='resume':raise UserError('Выбор архива доступен только для восстановления.')
     revision=data.get('update_revision','')
     if not isinstance(revision,str) or (revision and not re.fullmatch(r'[a-f0-9]{64}',revision)):raise UserError('Некорректная версия текущей конфигурации.')
+    clean['legacy_confirmed']=data.get('legacy_confirmed') is True
     clean['update_revision']=revision
     clean['restore_backup']=backup
     if (clean['action'] in ('remove','fresh') or backup) and data.get('confirmed') is not True:raise UserError('Подтвердите выбранное удаление флажком «Я подтверждаю».')
@@ -76,7 +78,7 @@ def validate(data):
 def session_payload(data):
     if not isinstance(data,dict):raise UserError('Некорректные данные текущего сеанса.')
     result={}
-    fields=('action','routing','auth','initial_user','comment','vpn_port','update_packages','ru_routes','eu_routes','update_revision','update_user_count','update_loaded_pair')
+    fields=('action','routing','auth','initial_user','comment','vpn_port','update_packages','ru_routes','eu_routes','update_revision','update_user_count','update_loaded_pair','update_legacy','update_dirty')
     server_fields=('host','port','user','method','password','key','key_path','passphrase','alias')
     def copy_value(value):
         if isinstance(value,str) and len(value)<=150000:return value
@@ -94,13 +96,13 @@ def session_payload(data):
     return result
 
 
-UPDATE_READ=r"""import pathlib,json,fcntl
+UPDATE_READ=r"""import pathlib,json,fcntl,contextlib
 # VPNAI_UPDATE_SNAPSHOT
 p=pathlib.Path('/var/lib/ovpn-installer/state.json')
 state=json.loads(p.read_text()) if p.is_file() else None
 base=pathlib.Path('/etc/ovpn-routing')
-with open('/run/ovpn-user.lock','a') as lock:
- fcntl.flock(lock,fcntl.LOCK_SH)
+with (open('/run/ovpn-user.lock','r') if pathlib.Path('/run/ovpn-user.lock').exists() else contextlib.nullcontext()) as lock:
+ if lock:fcntl.flock(lock,fcntl.LOCK_SH)
  db=pathlib.Path('/etc/openvpn/server/users.json')
  users=json.loads(db.read_text()) if db.is_file() else {}
  public=[{'name':n,'enabled':bool(v.get('enabled'))} for n,v in sorted(users.items()) if not v.get('deleted')]
@@ -109,6 +111,9 @@ print(json.dumps({'config':{k:config.get(k) for k in ('ru_ip','nl_ip','vpn_net',
 """
 
 def update_configuration(ru,settings,previous):
+    if previous is None:
+        import legacy_update
+        return legacy_update.read(ru,settings)
     raw=json.loads(ru.python(UPDATE_READ))
     if not raw.get('state'):raise UserError('Сохранённая конфигурация не найдена. Выберите установку или восстановление из архива.')
     if any(raw['config'].get(k)!=settings[role]['host'] for k,role in (('ru_ip','ru'),('nl_ip','nl'))):raise UserError('Конфигурация относится к другой паре серверов.')
@@ -122,9 +127,13 @@ def update_configuration(ru,settings,previous):
 def read_update_configuration(settings):
     ru=Remote('ru',dict(settings['ru']))
     try:
-        ru.connect();ru.lock()
+        ru.connect()
         previous=json.loads(ru.python("import pathlib; p=pathlib.Path('/var/lib/ovpn-installer/state.json'); print(p.read_text() if p.is_file() else 'null')"))
-        return update_configuration(ru,settings,previous)
+        result=update_configuration(ru,settings,previous)
+        import dns_backend
+        try:result['dns']=dns_backend.execute(ru,'read')
+        except UserError as error:result['dns_error']=str(error)
+        return result
     finally:ru.close()
 
 def backup_update(job,c,ru,nl):
@@ -212,7 +221,7 @@ def fingerprints(settings):
     return result
 
 class Remote(engine.Endpoint):
-    def __init__(self,role,settings):self.role=role;self.settings=settings;self.client=None;self.host=settings['host'];self.guard=None
+    def __init__(self,role,settings):self.role=role;self.settings=settings;self.client=None;self.host=settings['host'];self.guard=None;self.guard_stop=threading.Event();self.guard_write=threading.Lock();self.guard_thread=None;self.guard_failed=False;self.guard_path=None;self.guard_token=None;self.bootstrap_lock=False;self.lock_release_pending=False
     def connect(self):
         pm=get_paramiko();expected=self.settings['fingerprint']
         if not expected:raise UserError('Сначала получите и подтвердите SSH-отпечатки.')
@@ -246,7 +255,12 @@ class Remote(engine.Endpoint):
             raise UserError('SSH: не удалось подключиться: '+server+' ('+type(e).__name__+'). Проверьте адрес, порт и доступность сервера.') from None
         client.get_transport().set_keepalive(20)
         self.shell('test "$(id -u)" = 0',quiet=True)
-    def execute(self,command,payload='',limit=1800):
+    def execute(self,command,payload='',limit=1800,_unlocked=False):
+        if not _unlocked:
+            if self.guard_failed:raise UserError('Связь с блокировкой сервера потеряна. Перечитайте состояние перед новой операцией.')
+            if self.bootstrap_lock and self.execute('command -v python3 || true',limit=15,_unlocked=True).strip():self.lock()
+            if self.guard:command=ssh_guard.protected_command(command,self.guard_path,self.guard_token)
+            elif self.bootstrap_lock:command='flock -n -E 73 /run/ovpn-installer.lock '+command
         inp,out,err=self.client.exec_command(command,timeout=limit);channel=out.channel
         channel.set_combine_stderr(True)
         # Send in a separate thread so command output cannot deadlock the SSH window.
@@ -264,6 +278,8 @@ class Remote(engine.Endpoint):
             time.sleep(.03)
         status=channel.recv_exit_status();sender.join(timeout=2)
         if status or send_error:
+            if status==73 and self.bootstrap_lock:raise UserError('На сервере уже выполняется другая операция.')
+            if b'VPNAI_LOCK_LOST' in b''.join(chunks):raise UserError('Блокировка сервера недоступна. Команда не запущена; перечитайте состояние перед повторением.')
             detail=engine.diagnostic_message(b''.join(chunks).decode(errors='replace'))
             if detail:raise UserError(('Российский' if self.role=='ru' else 'Зарубежный')+' сервер: '+detail+' (код '+str(status)+').')
             raise UserError('Команда на '+('российском' if self.role=='ru' else 'зарубежном')+' сервере завершилась с ошибкой'+(' (код '+str(status)+')' if status else '')+'. Проверьте журнал systemd/пакетов на сервере. Пароли в журнал приложения не выводятся.')
@@ -273,14 +289,51 @@ class Remote(engine.Endpoint):
         wrapper='import json,sys\nDATA=json.load(sys.stdin)\n'+code
         return self.execute('python3 -c '+shlex.quote(wrapper),json.dumps(data))
     def lock(self):
-        inp,out,err=self.client.exec_command("flock -n /run/ovpn-installer.lock sh -c 'printf READY; cat >/dev/null'",timeout=10)
-        if out.read(5)!=b'READY':raise UserError('На сервере уже выполняется другая установка.')
-        self.guard=(inp,out,err)
-    def close(self):
         if self.guard:
-            with contextlib.suppress(Exception):self.guard[0].channel.close()
-        if self.client:self.client.close()
-        self.settings.clear()
+            if self.guard_failed:raise UserError('Связь с блокировкой сервера потеряна.')
+            return
+        if not self.execute('command -v python3 || true',limit=15,_unlocked=True).strip():
+            # Bootstrap a clean server under command-scoped flock; children inherit that lock.
+            self.bootstrap_lock=True;return
+        token=secrets.token_hex(16);path='/run/vpnai-lock-'+token+'.sock'
+        inp,out,err=self.client.exec_command(ssh_guard.server_command(path,token),timeout=10)
+        channel=out.channel;channel.settimeout(5)
+        try:
+            reply=out.readline(64)
+            if isinstance(reply,bytes):reply=reply.decode()
+            if reply.strip()!='READY':raise UserError('На сервере уже выполняется другая операция.' if reply.strip()=='BUSY' else 'Не удалось получить служебную блокировку сервера.')
+        except BaseException:
+            channel.close();raise
+        self.guard=(inp,out,err);self.guard_path=path;self.guard_token=token;self.bootstrap_lock=False;self.guard_failed=False;self.guard_stop.clear()
+        guard=self.guard
+        def heartbeat():
+            while not self.guard_stop.wait(ssh_guard.HEARTBEAT_SECONDS):
+                try:
+                    with self.guard_write:
+                        if self.guard is not guard:return
+                        guard[0].write('PING\n');guard[0].flush()
+                except Exception:self.guard_failed=True;return
+        self.guard_thread=threading.Thread(target=heartbeat,name='ssh-lock-heartbeat',daemon=True);self.guard_thread.start()
+    def close(self):
+        self.guard_stop.set()
+        try:
+            if self.guard:
+                channel=self.guard[1].channel;released=False
+                try:
+                    with self.guard_write:
+                        self.guard[0].write('QUIT\n');self.guard[0].flush();channel.shutdown_write()
+                    deadline=time.monotonic()+3
+                    while not channel.exit_status_ready() and time.monotonic()<deadline:time.sleep(.03)
+                    released=channel.exit_status_ready() and channel.recv_exit_status()==0
+                except Exception:pass
+                finally:
+                    self.lock_release_pending=not released
+                    with contextlib.suppress(Exception):channel.close()
+        finally:
+            if self.client:
+                with contextlib.suppress(Exception):self.client.close()
+            if self.guard_thread and self.guard_thread is not threading.current_thread():self.guard_thread.join(timeout=1)
+            self.guard=None;self.guard_thread=None;self.client=None;self.guard_path=None;self.guard_token=None;self.bootstrap_lock=False;self.settings.clear()
 
 SYSTEM_INFO='''set -e
 . /etc/os-release
@@ -520,6 +573,10 @@ def real_run(job):
         previous=json.loads(ru.python("import pathlib; p=pathlib.Path('/var/lib/ovpn-installer/state.json'); print(p.read_text() if p.exists() else 'null')"))
         job.report={'demo':False,'action':s['action'],'servers':{r:s[r]['host'] for r in ('ru','nl')},'existing':{r:inv[r]['managed'] for r in ('ru','nl')},'os':{r:inv[r]['os'] for r in ('ru','nl')},'routing':s['routing'],'auth':s['auth'],'update_packages':s['update_packages'],'initial_user':s['initial_user'],'lists':{'ru':s['ru_routes'],'eu':s['eu_routes']},'system':system,'checks':[]}
         if previous and any(previous['config'].get(k)!=c[k] for k in ('ru_ip','nl_ip')):raise UserError('Сохранённая установка относится к другой паре серверов.')
+        if previous is None and s['action']=='resume' and not s.get('restore_backup'):
+            import legacy_update
+            legacy_update.run(job,ru,nl)
+            return
         preserved_dns=None
         if s['action'] in ('install','resume') and s.get('dns') is None and not s.get('restore_backup'):
             import dns_backend

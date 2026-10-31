@@ -1,13 +1,15 @@
 {
-  "version": "v0.3.3",
-  "sha256": "386e2bdf226be1e7bdb4d7a103e19f2c19f643193482b9be002496b6cbb251e7",
+  "version": "v0.4.1",
+  "sha256": "cc137e91c0fe1f768607fe5eef3c97f2e4bfedd3a15b95f85e955ddf80b216c2",
   "instrumentation_passed": true,
   "lint_passed": true,
   "signature_sha256": "ce8f08149d56676bf51912924fbaf15497fdbf7f49d3f1659b191a8925f70525",
   "android_version": "15 ARM64 emulator",
   "build_type": "debug",
-  "version_code": 30300,
-  "regression_tests": 252,
+  "version_code": 40100,
+  "regression_tests": 281,
   "dns_backend_passed": true,
-  "dns_ui_passed": true
+  "dns_ui_passed": true,
+  "legacy_update_passed": true,
+  "ssh_guard_module_passed": true
 }
