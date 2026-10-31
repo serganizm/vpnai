@@ -40,14 +40,14 @@ with tempfile.TemporaryDirectory(prefix='vpnai-standalone-') as temp:
         assert request('/help')==request('/docs/readme.md')
         assert request('/readme.txt') and request('/docs/STANDALONE.md')
         assert request('/static/logo.jpg').startswith(b'\xff\xd8')
-        session={'ru':{'host':'8.8.8.8','password':'offline-fixture'},'nl':{'host':'9.9.9.9','password':'offline-fixture'}}
+        session={'dns':{'provider':'cloudflare','servers':['1.1.1.1','1.0.0.1']},'ru':{'host':'8.8.8.8','password':'offline-fixture'},'nl':{'host':'9.9.9.9','password':'offline-fixture'}}
         assert json.loads(request('/api/session',session))['saved']
         assert json.loads(request('/api/session'))==session
         assert not json.loads(request('/api/info'))['running']
         assert not json.loads(request('/api/admin/status',{}))['connected']
-        draft={'draft':session,'revision':1}
-        assert json.loads(request('/api/admin/save-connection-session',draft))['draft']==session
-        assert json.loads(request('/api/admin/connection-session',{}))['draft']==session
+        draft={'draft':{role:session[role] for role in ('ru','nl')},'revision':1}
+        assert json.loads(request('/api/admin/save-connection-session',draft))['draft']==draft['draft']
+        assert json.loads(request('/api/admin/connection-session',{}))['draft']==draft['draft']
         assert isinstance(json.loads(request('/api/ssh/aliases'))['aliases'],list)
         assert not json.loads(request('/api/info'))['install_connected']
         assert b'id="demo"' not in request('/')

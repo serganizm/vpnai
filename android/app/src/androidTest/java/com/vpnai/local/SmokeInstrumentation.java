@@ -26,13 +26,14 @@ public class SmokeInstrumentation extends Instrumentation {
                 CountDownLatch latch = new CountDownLatch(1);
                 runOnMainSync(() -> {
                     WebView web = findWebView(activity.getWindow().getDecorView());
-                    web.evaluateJavascript("({ready:document.readyState, title:document.title, bridge:typeof VPNAIAndroid.saveFile, save:typeof vpnaiSaveBlob, formsReady:!!document.querySelector('[data-admin-action=connect]') && !document.querySelector('[data-admin-action=connect]').disabled, bodyWidth:document.body.scrollWidth, width:innerWidth})", value -> {page[0] = value; latch.countDown();});
+                    web.evaluateJavascript("({ready:document.readyState,dns:typeof window.vpnaiDNSPreview==='object'&&!!document.querySelector('[data-dns-panel=installation]'), title:document.title, bridge:typeof VPNAIAndroid.saveFile, save:typeof vpnaiSaveBlob, formsReady:!!document.querySelector('[data-admin-action=connect]') && !document.querySelector('[data-admin-action=connect]').disabled, bodyWidth:document.body.scrollWidth, width:innerWidth})", value -> {page[0] = value; latch.countDown();});
                 });
                 latch.await(5, TimeUnit.SECONDS);
                 if (page[0] != null && page[0].contains("complete") && page[0].contains("\"formsReady\":true")) break;
                 Thread.sleep(300);
             }
             if (page[0] == null || !page[0].contains("complete") || !page[0].contains("function") || !page[0].contains("\"formsReady\":true")) throw new AssertionError("WebView did not load app: " + page[0]);
+            if (!page[0].contains("\"dns\":true")) throw new AssertionError("DNS UI missing: " + page[0]);
             runOnMainSync(() -> findWebView(activity.getWindow().getDecorView()).evaluateJavascript("vpnaiSaveBlob(new Blob(['VPNAI Android export smoke test\\n'],{type:'text/plain'}),'vpnai-export-smoke.txt')", null));
             boolean saved = false;
             for (int i = 0; i < 60 && !saved; i++) {

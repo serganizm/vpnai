@@ -80,6 +80,10 @@ def offline_check():
     import urllib.error
     import bundled_check
     result = bundled_check.self_test()
+    import dns_backend
+    assert dns_backend.validate({'provider':'google'})['servers'] == ['8.8.8.8','8.8.4.4']
+    assert 'def rule_key(' in dns_backend.REMOTE
+    result['dns_backend'] = True
     base = 'http://127.0.0.1:%s' % _server.server_port
     def request(path, token=True, data=None):
         headers = {'X-Local-Token': _server.application.token} if token else {}

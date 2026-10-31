@@ -1,13 +1,13 @@
-# Готовые приложения 0.3.2
+# Готовые приложения 0.3.3
 
 | Платформа | Файл |
 |---|---|
-| Android 7+ ARM64 | VPNAI-v0.3.2-android-arm64.apk |
-| macOS Apple Silicon | VPNAI-v0.3.2-macos-arm64.zip |
-| Linux x64 | VPNAI-v0.3.2-linux-x64.tar.gz |
-| Windows x64 | VPNAI-v0.3.2-windows-x64.exe |
-| Исходники desktop и Android | VPNAI-source-v0.3.2.zip |
-| Четыре готовых приложения вместе | VPNAI-v0.3.2-all-platforms.zip |
+| Android 7+ ARM64 | VPNAI-v0.3.3-android-arm64.apk |
+| macOS Apple Silicon | VPNAI-v0.3.3-macos-arm64.zip |
+| Linux x64 | VPNAI-v0.3.3-linux-x64.tar.gz |
+| Windows x64 | VPNAI-v0.3.3-windows-x64.exe |
+| Исходники desktop и Android | VPNAI-source-v0.3.3.zip |
+| Четыре готовых приложения вместе | VPNAI-v0.3.3-all-platforms.zip |
 
 Распакуйте ZIP/TAR.GZ на Mac/Linux и запустите исполняемый файл. На Windows откройте EXE. Android: откройте APK и разрешите установку из выбранного источника. Готовые приложения содержат Python, SSH-библиотеки и интерфейс; отдельная установка зависимостей не нужна. Контрольные суммы опубликованы в SHA256SUMS.txt.
 

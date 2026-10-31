@@ -102,7 +102,7 @@ class Handler(BaseHTTPRequestHandler):
             folder=ROOT if getattr(sys,'frozen',False) else ROOT.parent
             document=folder/'docs/readme.md' if path=='/help' else folder/'readme.txt'
             self.send(200,document.read_bytes(),'text/plain; charset=utf-8');return
-        if path.startswith('/docs/') and path[len('/docs/'):] in {'SETUP.md','readme.md','SSH_TRUST.md','STANDALONE.md','TEST_REPORT.md','ARCHITECTURE.md','RELEASE_NOTES.md'}:
+        if path.startswith('/docs/') and path[len('/docs/'):] in {'DNS.md','SETUP.md','readme.md','SSH_TRUST.md','STANDALONE.md','TEST_REPORT.md','ARCHITECTURE.md','RELEASE_NOTES.md'}:
             folder=ROOT/'docs' if getattr(sys,'frozen',False) else ROOT.parent/'docs'
             p=folder/path[len('/docs/'):]
             if p.is_file():self.send(200,p.read_bytes(),'text/plain; charset=utf-8');return

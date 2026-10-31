@@ -82,6 +82,8 @@ class Controller(unittest.TestCase):
     return '  gre: #1, reqid 1, INSTALLED, TRANSPORT' if 'swanctl --list-sas' in script else ''
    def python(self,code,data=None):
     self.python_calls.append((code,data))
+    import dns_backend
+    if code==dns_backend.CAPTURE:return json.dumps({"profiles":{},"managed":False})
     if code==backend.UPDATE_PASSWORDS:return '{"generated":[]}'
     if code==backend.engine.INITIAL_USER_IF_EMPTY:return json.dumps({'name':data,'created':True})
     if code==backend.INSPECT_MODES:return json.dumps({'profiles':[None,None],'list_classifier':False,'split_tools':False})

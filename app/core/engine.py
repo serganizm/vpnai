@@ -244,7 +244,7 @@ if any(not shutil.which(name) for name in ('systemctl','ip','iptables','swanctl'
 for info in owned.values():
  if info.get('backup') and not P(info['backup']).is_file():fail('CLEAN_BACKUP')
 units=['ovpn-acme-proxy','ovpn-tcp-network','ovpn-network'] if role=='nl' else ['ovpn-tcp-network','ovpn-network']
-if role=='ru':units=['openvpn-server@ru','openvpn-server@ru-tcp','ovpn-list-update.timer','ovpn-crl-refresh.timer','ovpn-links','ovpn-links-cleanup','ovpn-cert-renew.timer','ovpn-cert-renew']+units
+if role=='ru':units=['ovpn-dns','openvpn-server@ru','openvpn-server@ru-tcp','ovpn-list-update.timer','ovpn-crl-refresh.timer','ovpn-links','ovpn-links-cleanup','ovpn-cert-renew.timer','ovpn-cert-renew']+units
 for unit in units:call('systemctl','disable','--now',unit)
 call('swanctl','--terminate','--ike','ovpn-gre')
 p=P('/usr/local/sbin/ovpn-network')

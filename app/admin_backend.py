@@ -78,6 +78,9 @@ class AdminService:
             if operation=='disconnect':self.close();return {'connected':False}
             if operation=='status':return self.snapshot()
             if not self.settings:raise backend.UserError('Сначала подключитесь к серверам.')
+            if operation in ('dns-status','dns-probe','dns-apply'):
+                import dns_backend
+                return dns_backend.dispatch(self.settings,operation,data)
             if operation in ('create','update','delete','credentials'):
                 name=username(data.get('name'));request={'name':name}
                 if operation in ('create','update'):request['comment']=comment(data.get('comment',''))

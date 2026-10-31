@@ -13,7 +13,7 @@ root=pathlib.Path(__file__).resolve().parents[2];app=root/'app';output=root/'bui
 name='VPNAI-'+a.version+'-'+a.target+extension
 cmd=[sys.executable,'-m','PyInstaller','--noconfirm','--clean','--onefile','--console','--python-option','X utf8','--noupx','--name',name,'--distpath',str(output),'--workpath',str(root/'build/pyinstaller'),'--specpath',str(root/'build/spec'),'--paths',str(app),'--paths',str(app/'core'),'--hidden-import','engine']
 for package in ('paramiko','cryptography','bcrypt','nacl'):cmd.extend(['--collect-all',package])
-for source,destination in [(app/'core','core'),(app/'static','static'),(app/'admin_remote.py','.'),(app/'CHECKSUMS.json','.'),(root/'docs','docs'),(root/'readme.txt','.')]:cmd.extend(['--add-data',str(source)+':'+destination])
+for source,destination in [(app/'core','core'),(app/'static','static'),(app/'admin_remote.py','.'),(app/'dns_remote.py','.'),(app/'dns_policy.py','.'),(app/'CHECKSUMS.json','.'),(root/'docs','docs'),(root/'readme.txt','.')]:cmd.extend(['--add-data',str(source)+':'+destination])
 cmd.append(str(app/'app.py'));subprocess.run(cmd,check=True,cwd=root)
 exe=output/name
 if not exe.is_file():raise SystemExit('Executable missing: '+str(exe))

@@ -25,6 +25,10 @@ def validate(data):
     if data.get('demo',False) is not False:raise UserError('Доступна только работа с реальными серверами.')
     demo=False
     clean={'demo':False,'action':data.get('action','check'),'routing':data.get('routing','split'),'auth':data.get('auth','password')}
+    clean['dns']=None
+    if data.get('dns') is not None:
+        import dns_backend
+        clean['dns']=dns_backend.validate(data['dns'])
     clean['update_packages']=data.get('update_packages',False)
     if not isinstance(clean['update_packages'],bool):raise UserError('Обновление пакетов: выберите Да или Нет.')
     if clean['action'] not in ACTIONS or clean['routing'] not in MODES or clean['auth'] not in AUTH:raise UserError('Неизвестный вариант настройки.')
@@ -78,6 +82,9 @@ def session_payload(data):
         if isinstance(value,str) and len(value)<=150000:return value
         if type(value) in (int,bool):return value
         raise UserError('Некорректное поле текущего сеанса.')
+    if data.get('dns') is not None:
+        import dns_backend
+        result['dns']=dns_backend.validate(data['dns'])
     for key in fields:
         if key in data:result[key]=copy_value(data[key])
     for role in ('ru','nl'):
@@ -513,8 +520,16 @@ def real_run(job):
         previous=json.loads(ru.python("import pathlib; p=pathlib.Path('/var/lib/ovpn-installer/state.json'); print(p.read_text() if p.exists() else 'null')"))
         job.report={'demo':False,'action':s['action'],'servers':{r:s[r]['host'] for r in ('ru','nl')},'existing':{r:inv[r]['managed'] for r in ('ru','nl')},'os':{r:inv[r]['os'] for r in ('ru','nl')},'routing':s['routing'],'auth':s['auth'],'update_packages':s['update_packages'],'initial_user':s['initial_user'],'lists':{'ru':s['ru_routes'],'eu':s['eu_routes']},'system':system,'checks':[]}
         if previous and any(previous['config'].get(k)!=c[k] for k in ('ru_ip','nl_ip')):raise UserError('Сохранённая установка относится к другой паре серверов.')
+        preserved_dns=None
+        if s['action'] in ('install','resume') and s.get('dns') is None and not s.get('restore_backup'):
+            import dns_backend
+            preserved_dns=dns_backend.capture(ru)
         if s['action']=='resume' and s.get('restore_backup'):
+            import dns_backend
+            current_dns=dns_backend.saved(ru)
+            if current_dns and current_dns['servers']:raise UserError('Перед восстановлением архива отключите DNS от сервера в управлении и переподключитесь. Затем повторите восстановление.')
             c=restore_archive(job,s,c,ru,nl,inv);mutated=True
+            preserved_dns=dns_backend.capture(ru)
             inv={ep.role:ep.inventory() for ep in endpoints}
             previous=json.loads(ru.python("import pathlib; print(pathlib.Path('/var/lib/ovpn-installer/state.json').read_text())"))
             job.report['routing']=c['routing_mode'];job.report['auth']=c['auth_mode']
@@ -588,6 +603,9 @@ def real_run(job):
             warning='Рабочий сертификат сохранён, но Let’s Encrypt сейчас недоступен. Автопродление повторит проверку каждый час; проверьте журнал ovpn-cert-renew.'
             job.report.setdefault('warnings',[]).append(warning);job.event('Предупреждение HTTPS',65,warning)
         job.checkpoint();job.event('Запуск VPN',75,'Защищённый туннель и OpenVPN UDP/TCP.')
+        if preserved_dns:
+            import dns_backend
+            dns_backend.preserve_push(ru,preserved_dns)
         job.report['initial_user_result']=engine.activate(c,ru,nl,create_only_if_empty=True) if current_update else engine.activate(c,ru,nl)
         if current_update and job.report['initial_user_result'].get('skipped_existing'):
             c['initial_user']='';job.report['initial_user']=''
@@ -611,11 +629,22 @@ if DATA['name'] and (not record.get('enabled') or record.get('deleted') or not a
             job.artifact=collect(ru);job.expires=time.time()+600
         for ep in endpoints:ep.python("import pathlib;pathlib.Path('/var/lib/ovpn-installer/rolled-back').unlink(missing_ok=True)")
         state['complete']=True;ru.write('/var/lib/ovpn-installer/state.json',json.dumps(state))
+        import dns_backend
+        try:
+            requested_dns=s.get('dns') if not s.get('restore_backup') else None
+            effective_dns=requested_dns if requested_dns is not None else (None if preserved_dns and not preserved_dns['managed'] else dns_backend.saved(ru))
+            if effective_dns is not None:
+                job.event('DNS',97,'Применение DNS для VPN-клиентов с резервной копией настроек.')
+                job.report['dns']=dict(dns_backend.apply_install(effective_dns,ru,nl),applied=True)
+        except UserError as error:
+            job.report['dns']={'applied':None,'error':str(error)}
+            job.event('DNS требует проверки',98,'VPN установлен. '+str(error))
         job.report['notice']='Серверные проверки завершены. Дополнительно импортируйте профиль и проверьте VPN со своего устройства.'
         if current_update:
             job.report['notice']='Обновление завершено. Настройки применены, серверное меню обновлено, существующие пользователи сохранены. Скачайте обновлённые профили и переподключите устройства.'
             if job.report.get('passwords_generated'):job.report['notice']+=' Для пользователей без сохранённого пароля созданы новые пароли; они включены в архив профилей.'
         if any(info['reboot_required'] for info in system.values()):job.report['notice']+=' Обновления ОС требуют перезагрузки: '+', '.join('российский сервер' if r=='ru' else 'зарубежный сервер' for r,info in system.items() if info['reboot_required'])+'. Она автоматически не выполнялась.'
+        if 'dns' in job.report and job.report['dns'].get('applied') is not True:job.report['notice']+=' Проверьте DNS: '+job.report['dns']['error']
         job.event('Готово',100,'Установка завершена. Профили доступны для скачивания 10 минут; меню на сервере: /root/menu.sh.')
     except BaseException:
         if current_update and mutated:

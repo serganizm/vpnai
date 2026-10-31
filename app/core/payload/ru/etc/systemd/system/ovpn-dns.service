@@ -1,0 +1,12 @@
+[Unit]
+Description=VPNAI DNS policy routing
+After=network-online.target ovpn-network.service ovpn-tcp-network.service
+Wants=network-online.target ovpn-network.service ovpn-tcp-network.service
+Before=openvpn-server@ru.service openvpn-server@ru-tcp.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ovpn-dns-policy
+ExecStop=/usr/local/sbin/ovpn-dns-policy clear
+[Install]
+WantedBy=multi-user.target
