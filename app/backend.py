@@ -469,7 +469,8 @@ def real_run(job):
         job.event('SSH',3,'Подключение к двум указанным серверам с проверкой отпечатков.')
         for ep in endpoints:job.checkpoint();ep.connect()
         job.ssh_connected=True
-        for ep in endpoints:ep.lock()
+        if s['action'] not in ('check','verify'):
+            for ep in endpoints:ep.lock()
         job.event('ОС и Python',5,'Определение ОС и наличия Python 3 на обоих серверах.')
         system={ep.role:system_info(ep) for ep in endpoints}
         job.report['system']=system
@@ -483,6 +484,32 @@ def real_run(job):
             ensure_python(ep,system[ep.role],s['action'] in ('install','resume','fresh'))
         job.event('Проверка серверов',8,'Проверка адресов, служб и предыдущей установки.')
         inv={ep.role:ep.inventory() for ep in endpoints}
+        if s['action'] in ('check','verify'):
+            from diagnostics import inspect_servers
+            result=inspect_servers(c,endpoints,inv,verify=s['action']=='verify')
+            job.report['requested_routing']=job.report.pop('routing',s['routing'])
+            job.report['requested_auth']=job.report.pop('auth',s['auth'])
+            try:
+                state=json.loads(ru.python("import pathlib; p=pathlib.Path('/var/lib/ovpn-installer/state.json'); print(p.read_text() if p.exists() else 'null')"))
+                if state is not None and (not isinstance(state,dict) or not isinstance(state.get('config'),dict)):raise ValueError('Invalid installer state')
+                if state and any(state.get('config',{}).get(k)!=c[k] for k in ('ru_ip','nl_ip')):
+                    result['warnings'].append('Служебный файл относится к другой паре серверов и не использован для определения режимов.');state=None
+                modes=installed_modes(ru,state or {'config':{}},allow_incomplete=False)
+                job.report.update(installed=modes,routing=modes['routing'],auth=modes['auth'])
+                if state and modes['legacy']:result['warnings'].append('Обнаружена старая установка; настройки только прочитаны.')
+            except (UserError,ValueError,KeyError,TypeError):
+                job.report.update(routing='unknown',auth='unknown')
+                result['warnings'].append('Режимы маршрутизации и входа не удалось определить; выбранные в форме параметры не считаются фактическими.')
+
+            job.report['details']={r:{k:inv[r].get(k) for k in ('routes','routes6','addr','swan','reserved_files')} for r in ('ru','nl')}
+            job.report.update(action=s['action'],servers={r:s[r]['host'] for r in ('ru','nl')},os={r:inv[r]['os'] for r in ('ru','nl')},system=system,existing={r:inv[r]['managed'] for r in ('ru','nl')},diagnostics=result,checks=result['checks'],warnings=result['warnings'],full_check=result['complete'])
+            for warning in result['warnings']:job.event('Диагностика',10,warning)
+            for item in result['checks']:
+                if item['passed'] is not True:job.event('Диагностика',80,item['server']+': '+item['check']+' — '+('замечание' if item['passed'] is False else 'неизвестно')+'. '+item['detail'])
+            failed=[x for x in result['checks'] if x['passed'] is False]
+            if failed:raise UserError('Диагностика завершена: есть замечания. Смотрите результаты отдельных проверок в отчёте; переустановка автоматически не требуется.')
+            job.report['notice']='Проверка состояния завершена. '+('Часть проверок недоступна; результат неполный. ' if not result['complete'] else '')+'Сквозная работа клиентского VPN не проверялась.'
+            job.event('Проверка завершена',100,job.report['notice']);return
         previous=json.loads(ru.python("import pathlib; p=pathlib.Path('/var/lib/ovpn-installer/state.json'); print(p.read_text() if p.exists() else 'null')"))
         job.report={'demo':False,'action':s['action'],'servers':{r:s[r]['host'] for r in ('ru','nl')},'existing':{r:inv[r]['managed'] for r in ('ru','nl')},'os':{r:inv[r]['os'] for r in ('ru','nl')},'routing':s['routing'],'auth':s['auth'],'update_packages':s['update_packages'],'initial_user':s['initial_user'],'lists':{'ru':s['ru_routes'],'eu':s['eu_routes']},'system':system,'checks':[]}
         if previous and any(previous['config'].get(k)!=c[k] for k in ('ru_ip','nl_ip')):raise UserError('Сохранённая установка относится к другой паре серверов.')
@@ -504,15 +531,6 @@ def real_run(job):
             if s['action'] in ('check','verify') and detected['auth']!=s['auth']:warnings.append('Авторизация в отчёте взята из действующих настроек сервера.')
             job.report['warnings']=warnings
             for warning in warnings:job.event('Режим сервера',10,warning)
-        if s['action']=='check':
-            for ep in endpoints:
-                class ReadOnly:
-                    role=ep.role
-                    python=ep.python
-                    def write(self,*args,**kwargs):pass
-                engine.preflight(c,ReadOnly(),inv[ep.role],bool(previous))
-            job.report['details']={r:{'ipsec':inv[r]['swan'],'reserved_files':inv[r]['reserved_files']} for r in ('ru','nl')}
-            job.event('Проверка завершена',100,'Доступ и состояние прочитаны. Настройки не менялись.');return
         if s['action'] in ('fresh','remove'):
             remove_installation(job,c,ru,nl)
             previous=None
@@ -537,13 +555,6 @@ def real_run(job):
                     backup_update(job,c,ru,nl)
                     job.event('Обновление',12,'Текущее состояние сохранено в парные архивы. Будут применены настройки формы; пользователи и сертификаты сохраняются.')
             job.report['routing']=c['routing_mode'];job.report['auth']=c['auth_mode']
-        if s['action']=='verify':
-            job.event('Проверка VPN',45,'Проверка служб, HTTPS и реальных выходов из серверных тестовых сетей.')
-            job.report['verification']=engine.verify(c,ru,nl,write_report=False);job.report['notice']='Проверка серверов завершена. '+(' '.join(job.report.get('warnings',[]))+' ' if job.report.get('warnings') else '')+'Клиент OpenVPN на личном устройстве не проверялся.'
-            job.event('Архив профилей',96,'Проверки VPN пройдены. Чтение существующих профилей для скачивания.')
-            try:job.artifact=collect(ru)
-            except UserError:raise UserError('Проверки VPN пройдены, но получить архив существующих профилей не удалось. Проверьте /root/ovpn-profiles/ на российском сервере.') from None
-            job.expires=time.time()+600;return
         for ep in endpoints:job.checkpoint();engine.preflight(c,ep,inv[ep.role],bool(previous))
         c['https_relay']=True
         state=previous or {'version':2,'config':c,'psk':secrets.token_hex(32),'complete':False}

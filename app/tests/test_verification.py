@@ -91,7 +91,7 @@ class VerificationRegression(unittest.TestCase):
    with patch.object(backend,'Remote',Fake),patch.object(engine,'verify',return_value={'passed':True}) as verify,patch.object(backend,'collect',return_value=b'archive'):job.run()
    self.assertEqual(job.report['routing'],'full_mixed');self.assertEqual(job.report['requested_routing'],'split');self.assertTrue(job.report['warnings'])
    if action=='verify':
-    self.assertEqual(job.status,'success',job.events);self.assertFalse(verify.call_args.kwargs['write_report'])
+    self.assertEqual(job.status,'success',job.events);verify.assert_not_called();self.assertIn('diagnostics',job.report)
    else:
     self.assertEqual(job.status,'error');verify.assert_not_called();self.assertIn('конфигурация не найдена',job.events[-1]['message'])
    self.assertFalse(any(ep.writes for ep in endpoints));self.assertTrue(all(ep.closed for ep in endpoints));self.assertNotIn('private-ru',json.dumps(job.public()))
