@@ -10,7 +10,10 @@ subprocess.run([sys.executable,str(root/'android/prepare_payload.py'),str(root)]
 with zipfile.ZipFile(apk) as app,zipfile.ZipFile(root/'android/app/src/main/assets/payload.zip') as expected:
  with zipfile.ZipFile(io.BytesIO(app.read('assets/payload.zip'))) as actual:
   assert set(actual.namelist())==set(expected.namelist()),'APK payload file list differs'
-  for name in expected.namelist():assert actual.read(name)==expected.read(name),'APK source mismatch: '+name
+  for name in expected.namelist():
+   if name=='app/CHECKSUMS.json':
+    assert json.loads(actual.read(name))==json.loads(expected.read(name)),'APK manifest differs'
+   else:assert actual.read(name)==expected.read(name),'APK source mismatch: '+name
 for name in names:
  p=apk if name.endswith('.apk') else root/'build/packages'/name
  if not p.is_file():raise SystemExit('Missing tested package: '+name)
