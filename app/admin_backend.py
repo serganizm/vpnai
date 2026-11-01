@@ -78,6 +78,9 @@ class AdminService:
             if operation=='disconnect':self.close();return {'connected':False}
             if operation=='status':return self.snapshot()
             if not self.settings:raise backend.UserError('Сначала подключитесь к серверам.')
+            if operation in ('limits-status','limits-default','limits-user'):
+                import limits_backend
+                return limits_backend.dispatch(self.settings,operation,data)
             if operation in ('dns-status','dns-probe','dns-apply'):
                 import dns_backend
                 return dns_backend.dispatch(self.settings,operation,data)

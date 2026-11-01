@@ -244,3 +244,107 @@ aside{width:280px;padding:30px 22px}main{margin-left:280px;padding:0 42px;max-wi
 @media(max-width:1000px){.web-preview .dns-options{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 .dns-feedback,.dns-current strong,.dns-panel [role="alert"]{overflow-wrap:anywhere}
+
+/* Connection limits interface preview. */
+.limits-preview-note{font-size:10px;color:var(--muted);padding:12px 0 0}
+.web-preview .web-status-bar{align-items:center}
+.web-preview .web-status-bar .workspace-switch{margin-bottom:14px;margin-top:14px}
+.web-preview #workspaceConnectionBadge{margin-bottom:14px;margin-top:14px}
+.users-table td,.users-table td[rowspan]{vertical-align:top}
+.users-table .user-cell{align-items:flex-start}
+.users-table .avatar{flex-shrink:0;margin-top:2px}
+.users-table .user-max{font-size:10px;line-height:1.6;color:var(--purple);margin-top:3px}
+.connection-limit-panel{margin:0 0 22px;padding:22px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.limit-panel-heading{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:22px}
+.limit-panel-heading h2{font-size:20px;margin:8px 0}
+.limit-panel-heading p,.limit-settings-copy p{font-size:12px;color:var(--muted);margin:0;line-height:1.7}
+.limit-panel-symbol{background:#c5a6ff15;border:1px solid #c5a6ff30;border-radius:12px;color:var(--purple);font:18px monospace;padding:16px}
+.limit-settings-row{display:grid;grid-template-columns:minmax(200px,320px) 1fr;gap:28px;align-items:center}
+.limit-settings-row label{margin:0;font-size:12px}.limit-settings-row select{margin-top:10px}
+.limit-settings-copy strong{font-size:13px;font-weight:550}.limit-settings-copy p{margin-top:6px}
+.limit-panel-footer{display:flex;align-items:center;justify-content:space-between;gap:22px;border-top:1px solid var(--line);margin-top:22px;padding-top:18px}
+.limit-panel-footer>span{max-width:620px;font-size:11px;color:var(--muted);line-height:1.7}
+.limit-panel-footer button{min-width:140px}
+.limit-dialog-info{background:#c5a6ff08;border:1px solid var(--line);border-radius:10px;padding:15px;margin-top:20px;font-size:12px}
+.limit-dialog-info p:last-child{margin-bottom:0}
+.choice[data-user-limit] small{color:var(--purple);float:right;font-weight:400}
+@media(max-width:760px){.limit-settings-row{grid-template-columns:1fr;gap:16px}.limit-panel-footer{align-items:flex-start;flex-direction:column}.limit-panel-footer button{width:100%}.connection-limit-panel{padding:18px}}
+
+/* Compact setting label and per-user limit badges. */
+.limit-panel-label{white-space:nowrap;flex-shrink:0}
+.users-table .user-limit-badge{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:34px;height:36px;min-width:34px;line-height:1;margin-top:1px}
+.users-table .user-limit-badge strong{font-family:inherit;font-size:14px;font-weight:550;line-height:1.1}
+.users-table .user-limit-badge small{font-family:inherit;font-size:8px;line-height:1;letter-spacing:.2px;color:var(--purple)}
+@media(max-width:760px){.limit-panel-heading{flex-wrap:wrap}.limit-panel-label{white-space:normal}}
+
+/* Every session occupies the same height; spanning cells anchor to session one. */
+.users-table{--user-session-height:70px;--user-session-inset:16.5px}
+.users-table tbody tr{height:var(--user-session-height)}
+.users-table td{box-sizing:border-box;height:var(--user-session-height);padding-top:var(--user-session-inset);padding-bottom:var(--user-session-inset);vertical-align:middle}
+.users-table td[rowspan]{vertical-align:top}
+.users-table .user-cell{height:36px;min-height:36px;align-items:center}
+.users-table .user-cell>div{display:flex;flex-direction:column;justify-content:center;min-height:36px}
+.users-table .user-limit-badge{margin-top:0}
+.users-table .user-state-cell>.status{min-height:36px;display:flex;align-items:center}
+.users-table .user-state-cell:has(>small)>.status{min-height:18px}
+.users-table .user-state-cell>small{line-height:18px}
+.users-table .user-action-anchor{height:36px;display:flex;align-items:center}
+
+.choice[data-user-limit]{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.choice[data-user-limit] .user-limit-badge{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:34px;height:36px;min-width:34px;line-height:1;margin:0;flex-shrink:0;font-weight:400}
+.choice[data-user-limit] .user-limit-badge strong{font-family:inherit;font-size:14px;font-weight:550;line-height:1.1}
+.choice[data-user-limit] .user-limit-badge small{float:none;font-family:inherit;font-size:8px;line-height:1;letter-spacing:.2px;color:var(--purple)}
+/* Equal left/right inset for the menu label and its limit badge. */
+.choice[data-user-limit]{padding-left:16px;padding-right:16px}
+.choice[data-user-limit] .user-limit-badge{margin-left:auto;margin-right:0}
+
+/* Matching action rows and badges in the user menu. */
+.user-menu-actions .choice{box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;height:70px;min-height:70px;padding:12px 16px}
+.user-menu-actions .user-menu-icon,.user-menu-actions .user-limit-badge{box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:34px;height:36px;min-width:34px;border-radius:9px;background:#c5a6ff15;color:var(--purple);flex-shrink:0;margin:0 0 0 auto}
+.user-menu-icon svg{height:18px;width:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.user-menu-actions .danger-text .user-menu-icon{background:#ff9da615;color:var(--red)}
+.user-menu-actions .user-limit-badge{flex-direction:column}
+
+/* Shared connection feedback and aligned card headings. */
+.limit-panel-heading{display:block}
+.limit-panel-topline{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}
+.limit-panel-heading h2{margin:0 0 10px}
+.profiles-table td:last-child,.profiles-table th:last-child{text-align:right}
+button[data-admin-action="disconnect"]{background:#ffb4ba!important;color:#42232a!important;border-color:#ffb4ba!important}
+.connection-result-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;background:#08091388;backdrop-filter:blur(3px);z-index:150}
+.connection-result-message{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:32px 40px;max-width:560px;width:max-content;box-shadow:0 18px 80px #0006;font-size:20px;font-weight:500;line-height:1.6;text-align:center;overflow-wrap:anywhere}
+.connection-result-message.is-success{color:#b8ebc6;border-color:#b8ebc640}
+.connection-result-message.is-error{color:#ffb4ba;border-color:#ffb4ba40}
+@media(max-width:600px){.limit-panel-topline{gap:10px;align-items:flex-start}.limit-panel-label{max-width:65%;text-align:center}.connection-result-message{padding:24px;font-size:18px}}
+
+/* Server status follows the title row, with a fixed right inset. */
+.admin-server{display:grid;grid-template-columns:44px minmax(0,1fr) auto;column-gap:15px;align-items:start}
+.admin-server>.server-icon{grid-column:1;grid-row:1}
+.admin-server>div{grid-column:2;grid-row:1;min-width:0}
+.admin-server>.status{grid-column:3;grid-row:1;justify-self:end;align-self:start;margin:0;min-height:21px;line-height:21px;white-space:nowrap}
+.admin-server h2{line-height:21px}
+.admin-server p{white-space:normal;overflow-wrap:anywhere}
+@media(max-width:600px){.admin-server{column-gap:10px;grid-template-columns:38px minmax(0,1fr) auto}.admin-server>.server-icon{width:38px;height:38px}.admin-server h2{font-size:13px}.admin-server>.status{font-size:10px}}
+
+/* Three aligned resource tiles inside each server card. */
+.server-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch;gap:10px;margin-top:22px}
+.server-stats>div{box-sizing:border-box;min-width:0;min-height:96px;padding:12px 10px;border:1px solid var(--line);border-radius:9px;background:#10121b55;display:flex;flex-direction:column;align-items:flex-start}
+.server-stats small{display:block;min-height:28px;line-height:14px;font-size:10px;margin:0 0 5px}
+.server-stats strong{display:block;font-size:12px;line-height:18px;font-weight:550;white-space:normal;overflow-wrap:normal;font-variant-numeric:tabular-nums}
+@media(max-width:600px){.server-stats{gap:7px}.server-stats>div{padding:10px 8px;min-height:100px}.server-stats small{font-size:10px}.server-stats strong{font-size:11px}}
+
+/* Center resource labels and keep their values compact. */
+.server-stats>div{align-items:center;justify-content:center;text-align:center}
+.server-stats small{width:100%;min-height:28px;display:flex;align-items:center;justify-content:center;text-align:center;margin:0 0 8px}
+.server-stats strong{width:100%;text-align:center;white-space:nowrap;line-height:18px;min-height:18px}
+
+/* Compact, centered summary and server resource cards. */
+.server-stats>div{min-height:68px;padding:9px 8px}
+.server-stats small{min-height:20px;line-height:14px;margin-bottom:4px}
+.server-stats strong{line-height:18px;min-height:18px}
+.metric-grid{align-items:stretch}
+.metric{box-sizing:border-box;min-width:0;min-height:104px;padding:12px 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;border-radius:11px}
+.metric small{display:flex;align-items:center;justify-content:center;min-height:28px;font-size:11px;line-height:14px;text-align:center;width:100%}
+.metric strong{font-size:25px;line-height:32px;font-weight:550;margin:3px 0 4px;white-space:nowrap;text-align:center;font-variant-numeric:tabular-nums}
+.metric p{width:100%;font-size:10px;line-height:14px;margin:0;text-align:center}
+@media(max-width:600px){.server-stats>div{min-height:68px;padding:8px 6px}.server-stats small{min-height:24px;margin-bottom:3px}.metric{min-height:102px;padding:10px 7px}.metric strong{font-size:22px;line-height:29px}.metric small{font-size:10px}.metric p{font-size:9px}}

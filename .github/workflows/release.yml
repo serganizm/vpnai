@@ -6,7 +6,7 @@ on:
       tag:
         description: 'Existing release tag'
         required: true
-        default: 'v0.4.1'
+        default: 'v0.5.0'
   push:
     tags:
       - 'v[0-9]*'
@@ -23,6 +23,26 @@ defaults:
     shell: bash
 
 jobs:
+  register:
+    name: Record build run
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      NATIVE_RESULT: pending
+      RELEASE_RESULT: pending
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.tag || github.ref_name }}
+      - name: Record run identifier
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/release_receipt.py
+
   native:
     name: Build and test ${{ matrix.target }}
     strategy:
@@ -107,3 +127,34 @@ jobs:
             --title "VPNAI $RELEASE_TAG" \
             --notes-file build/release-notes.md build/release/*
           gh release edit "$RELEASE_TAG" --draft=false
+
+      - name: Save verified release files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-${{ env.RELEASE_TAG }}
+          path: build/release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  receipt:
+    name: Record release verification
+    if: always()
+    needs: [register, native, release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      NATIVE_RESULT: ${{ needs.native.result }}
+      RELEASE_RESULT: ${{ needs.release.result }}
+    steps:
+      - name: Check out receipt writer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.tag || github.ref_name }}
+      - name: Save publication result and asset digests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/release_receipt.py

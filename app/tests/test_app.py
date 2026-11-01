@@ -87,6 +87,7 @@ class Controller(unittest.TestCase):
     if code==backend.UPDATE_PASSWORDS:return '{"generated":[]}'
     if code==backend.engine.INITIAL_USER_IF_EMPTY:return json.dumps({'name':data,'created':True})
     if code==backend.INSPECT_MODES:return json.dumps({'profiles':[None,None],'list_classifier':False,'split_tools':False})
+    if 'connection-limits.json' in code:return 'null'
     if 'state.json' in code:return json.dumps(previous)
     if 'sysctl' in code:return '0'
     return ''

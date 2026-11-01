@@ -38,6 +38,15 @@ def run(job,ru,nl=None):
   except backend.UserError as error:
    dns_error=str(error);job.report['dns']={'applied':None,'error':dns_error}
    job.report['notice']=('Способ входа обновлён, ' if not result.get('unchanged') else 'Способ входа сохранён, ')+'а DNS требует проверки. '+dns_error+' Перечитайте настройки перед повторением.'
+ if s.get('connection_limit') is not None:
+  try:
+   import limits_backend
+   status=limits_backend.execute(ru,'read')
+   job.report['connection_limits']=limits_backend.execute(ru,'default',value=s['connection_limit'],revision=status['revision'],confirmed=True,restart_confirmed=True,helper=(limits_backend.ROOT/'session_limits.py').read_text())
+  except backend.UserError as error:
+   job.report['connection_limits']={'applied':None,'error':str(error)}
+   dns_error='Лимиты требуют проверки: '+str(error)
+   job.report['notice']+=' '+dns_error
  try:
   job.artifact=backend.collect(ru);job.expires=backend.time.time()+600
  except backend.UserError:

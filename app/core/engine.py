@@ -62,6 +62,7 @@ t=p.with_name(p.name+'.install-new');t.write_bytes(base64.b64decode(DATA['body']
         self.python(code,{'path':path,'body':base64.b64encode(text.encode()).decode(),'mode':mode,'preserve':preserve})
 
 def validate(c):
+    if c.get('connection_limit') is not None and (type(c['connection_limit']) is not int or not 0<=c['connection_limit']<=1000):raise InstallError('Лимит подключений: 0–1000.')
     c.setdefault('tcp_net','10.79.0.0/24')
     for k in ['ru_ip','nl_ip']:
         try:a=ipaddress.ip_address(c[k])
@@ -84,7 +85,7 @@ def validate(c):
 
 def tokens(c,role):
     v=ipaddress.ip_network(c['vpn_net']);g=ipaddress.ip_network(c['gre_net'])
-    return {'RU_IP':c['ru_ip'],'NL_IP':c['nl_ip'],'TCP_NET':c.get('tcp_net','10.79.0.0/24'),'TCP_SERVER':str(ipaddress.ip_network(c.get('tcp_net','10.79.0.0/24')).network_address)+' 255.255.255.0','VPN_NET':str(v),'VPN_SERVER':str(v.network_address)+' '+str(v.netmask),'GRE_RU':str(g[1]),'GRE_NL':str(g[2]),'GRE_RU_ADDR':str(g[1])+'/30','GRE_NL_ADDR':str(g[2])+'/30','OVPN_PORT':str(c['ovpn_port']),'RU_DEV':c.get('ru_dev','eth0'),'NL_DEV':c.get('nl_dev','eth0')}
+    return {'CONNECTION_LIMIT':str(c.get('connection_limit') or 0),'RU_IP':c['ru_ip'],'NL_IP':c['nl_ip'],'TCP_NET':c.get('tcp_net','10.79.0.0/24'),'TCP_SERVER':str(ipaddress.ip_network(c.get('tcp_net','10.79.0.0/24')).network_address)+' 255.255.255.0','VPN_NET':str(v),'VPN_SERVER':str(v.network_address)+' '+str(v.netmask),'GRE_RU':str(g[1]),'GRE_NL':str(g[2]),'GRE_RU_ADDR':str(g[1])+'/30','GRE_NL_ADDR':str(g[2])+'/30','OVPN_PORT':str(c['ovpn_port']),'RU_DEV':c.get('ru_dev','eth0'),'NL_DEV':c.get('nl_dev','eth0')}
 
 def render(text,c,role):
     for key,value in tokens(c,role).items():text=text.replace('@@'+key+'@@',value)
@@ -216,6 +217,13 @@ def deploy(c,ep,psk):
         if not p.is_file():continue
         path='/'+p.relative_to(ROOT/'payload'/ep.role).as_posix()
         text=render(p.read_text(),c,ep.role)
+        if path=='/etc/openvpn/server/connection-limits.json':
+            old=ep.python("import pathlib; p=pathlib.Path('/etc/openvpn/server/connection-limits.json'); print(p.read_text() if p.exists() else 'null')")
+            previous=json.loads(old)
+            if previous is not None:
+                if previous.get('version')!=1 or type(previous.get('default')) is not int or not isinstance(previous.get('users'),dict):raise InstallError('Повреждены сохранённые лимиты подключений.')
+                if c.get('connection_limit') is not None:previous['default']=c['connection_limit']
+                text=json.dumps(previous,ensure_ascii=False,indent=2)
         executable=text.startswith('#!')
         mode=0o700 if executable else 0o600
         if '/systemd/' in path or '/nginx/' in path:mode=0o644

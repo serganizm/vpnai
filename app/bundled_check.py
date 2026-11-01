@@ -4,7 +4,8 @@ import backend
 
 def self_test():
     import ssl,bcrypt,nacl.signing
-    import legacy_update,dns_backend,ssh_guard
+    import legacy_update,dns_backend,ssh_guard,limits_backend
+    assert 'def execute(' in limits_backend.REMOTE
     assert 'def execute(' in legacy_update.REMOTE
     assert ssh_guard.LEASE_SECONDS == 45
     assert dns_backend.validate({'provider':'google'})['servers'] == ['8.8.8.8','8.8.4.4']
@@ -28,4 +29,4 @@ def self_test():
         count+=1
     for name in ('index.html','app.js','style.css'):assert (root/'static'/name).is_file()
     assert ((root if getattr(sys,'frozen',False) else root.parent)/'docs/SETUP.md').is_file()
-    return {'standalone':bool(getattr(sys,'frozen',False)),'ssh_available':True,'paramiko':pm.__version__,'native_crypto':True,'core_files_verified':count,'legacy_update':True,'ssh_guard':True,'dns_backend':True,'openssl':ssl.OPENSSL_VERSION}
+    return {'standalone':bool(getattr(sys,'frozen',False)),'ssh_available':True,'paramiko':pm.__version__,'native_crypto':True,'core_files_verified':count,'connection_limits':True,'legacy_update':True,'ssh_guard':True,'dns_backend':True,'openssl':ssl.OPENSSL_VERSION}

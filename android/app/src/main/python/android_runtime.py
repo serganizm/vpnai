@@ -80,7 +80,9 @@ def offline_check():
     import urllib.error
     import bundled_check
     result = bundled_check.self_test()
-    import dns_backend,legacy_update_remote,ssh_guard
+    import dns_backend,legacy_update_remote,ssh_guard,limits_backend
+    assert 'def execute(' in limits_backend.REMOTE
+    result['connection_limits'] = True
     assert ssh_guard.LEASE_SECONDS == 45
     result['ssh_guard'] = True
     result['legacy_update'] = True

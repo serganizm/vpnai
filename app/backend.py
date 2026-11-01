@@ -26,6 +26,8 @@ def validate(data):
     if data.get('demo',False) is not False:raise UserError('Доступна только работа с реальными серверами.')
     demo=False
     clean={'demo':False,'action':data.get('action','check'),'routing':data.get('routing','split'),'auth':data.get('auth','password')}
+    import limits_backend
+    clean['connection_limit']=limits_backend.validate(data['connection_limit']) if data.get('connection_limit') is not None else None
     clean['dns']=None
     if data.get('dns') is not None:
         import dns_backend
@@ -78,7 +80,7 @@ def validate(data):
 def session_payload(data):
     if not isinstance(data,dict):raise UserError('Некорректные данные текущего сеанса.')
     result={}
-    fields=('action','routing','auth','initial_user','comment','vpn_port','update_packages','ru_routes','eu_routes','update_revision','update_user_count','update_loaded_pair','update_legacy','update_dirty')
+    fields=('connection_limit','action','routing','auth','initial_user','comment','vpn_port','update_packages','ru_routes','eu_routes','update_revision','update_user_count','update_loaded_pair','update_legacy','update_dirty')
     server_fields=('host','port','user','method','password','key','key_path','passphrase','alias')
     def copy_value(value):
         if isinstance(value,str) and len(value)<=150000:return value
@@ -107,7 +109,8 @@ with (open('/run/ovpn-user.lock','r') if pathlib.Path('/run/ovpn-user.lock').exi
  users=json.loads(db.read_text()) if db.is_file() else {}
  public=[{'name':n,'enabled':bool(v.get('enabled'))} for n,v in sorted(users.items()) if not v.get('deleted')]
 config=state.get('config',{}) if state else {}
-print(json.dumps({'config':{k:config.get(k) for k in ('ru_ip','nl_ip','vpn_net','tcp_net','gre_net','ovpn_port','routing_mode','auth_mode')},'users':public,'ru_routes':(base/'force-ru.txt').read_text() if (base/'force-ru.txt').exists() else '', 'eu_routes':(base/'extra-nl.txt').read_text() if (base/'extra-nl.txt').exists() else '', 'state':bool(state)}))
+limits=pathlib.Path('/etc/openvpn/server/connection-limits.json')
+print(json.dumps({'connection_limits':limits.read_text() if limits.exists() else None,'config':{k:config.get(k) for k in ('ru_ip','nl_ip','vpn_net','tcp_net','gre_net','ovpn_port','routing_mode','auth_mode')},'users':public,'ru_routes':(base/'force-ru.txt').read_text() if (base/'force-ru.txt').exists() else '', 'eu_routes':(base/'extra-nl.txt').read_text() if (base/'extra-nl.txt').exists() else '', 'state':bool(state)}))
 """
 
 def update_configuration(ru,settings,previous):
@@ -133,6 +136,9 @@ def read_update_configuration(settings):
         import dns_backend
         try:result['dns']=dns_backend.execute(ru,'read')
         except UserError as error:result['dns_error']=str(error)
+        import limits_backend
+        try:result['limits']=limits_backend.execute(ru,'read')
+        except UserError as error:result['limits_error']=str(error)
         return result
     finally:ru.close()
 
@@ -173,7 +179,7 @@ for name in ('ru.conf','ru-tcp.conf'):
  p=base/name
  if not p.exists():profiles.append(None);continue
  lines=[s.strip() for s in p.read_text().splitlines() if s.strip() and not s.lstrip().startswith(('#',';'))]
- profiles.append({'redirect':any(s.startswith('push ') and 'redirect-gateway' in s for s in lines),'split':any(s.startswith('client-connect ') and 'ovpn-split-connect' in s for s in lines),'password':any(s.startswith('auth-user-pass-verify ') for s in lines)})
+ profiles.append({'redirect':any(s.startswith('push ') and 'redirect-gateway' in s for s in lines),'split':any(s.startswith('client-connect ') and ('ovpn-split-connect' in s or s.endswith('ovpn-session-limit connect')) for s in lines),'password':any(s.startswith('auth-user-pass-verify ') for s in lines)})
 p=pathlib.Path('/usr/local/sbin/ovpn-network')
 network=p.read_text() if p.exists() else ''
 print(json.dumps({'profiles':profiles,'list_classifier':'--match-set ovpn_nl' in network,'split_tools':all(pathlib.Path(p).is_file() for p in ('/usr/local/sbin/ovpn-split-routes','/usr/local/libexec/ovpn-split-connect'))}))
@@ -371,7 +377,9 @@ def render(text,c,role):
     s=BASE_RENDER(text,c,role)
     if role!='ru':return s
     if 'server ' in s and 'verify-client-cert require' in s:
-        if c['routing_mode']!='split':s=s.replace('client-connect /usr/local/libexec/ovpn-split-connect','push "redirect-gateway def1"')
+        if c['routing_mode']!='split':
+            s=s.replace('client-connect /usr/local/libexec/ovpn-split-connect','push "redirect-gateway def1"')
+            s=s.replace('client-connect /usr/local/libexec/ovpn-session-limit connect','client-connect /usr/local/libexec/ovpn-session-limit connect-full\npush "redirect-gateway def1"')
         if c['auth_mode']=='certificate':s='\n'.join(l for l in s.splitlines() if not l.startswith('auth-user-pass-verify '))+'\n'
     if c['routing_mode']=='full_nl' and 'iptables -t mangle -A OVPN_CLASSIFY' in s:
         s='\n'.join(l for l in s.splitlines() if not ('OVPN_CLASSIFY' in l and '--match-set ovpn_force_ru' in l))+'\n'
@@ -504,7 +512,7 @@ class Job:
             self.settings.clear()
 
 def config(s):
-    return {'ru_ip':s['ru']['host'],'nl_ip':s['nl']['host'],'nl_host':'root@'+s['nl']['host'],'ssh_port':s['nl']['port'],'ssh_key':None,'initial_user':s['initial_user'],'vpn_net':'10.77.0.0/24','tcp_net':'10.79.0.0/24','gre_net':'10.78.0.0/30','ovpn_port':s['vpn_port'],'source_url':'https://iplist.opencck.org/?format=json&data=cidr4','routing_mode':s['routing'],'auth_mode':s['auth']}
+    return {'ru_ip':s['ru']['host'],'nl_ip':s['nl']['host'],'nl_host':'root@'+s['nl']['host'],'ssh_port':s['nl']['port'],'ssh_key':None,'initial_user':s['initial_user'],'vpn_net':'10.77.0.0/24','tcp_net':'10.79.0.0/24','gre_net':'10.78.0.0/30','ovpn_port':s['vpn_port'],'source_url':'https://iplist.opencck.org/?format=json&data=cidr4','routing_mode':s['routing'],'auth_mode':s['auth'],'connection_limit':s.get('connection_limit')}
 
 def collect(ru):
     # ZIP is generated on the host under the shared user lock, then transferred over SSH.
@@ -629,6 +637,7 @@ def real_run(job):
             job.report['routing']=c['routing_mode'];job.report['auth']=c['auth_mode']
         for ep in endpoints:job.checkpoint();engine.preflight(c,ep,inv[ep.role],bool(previous))
         c['https_relay']=True
+        c['connection_limit']=s.get('connection_limit')
         state=previous or {'version':2,'config':c,'psk':secrets.token_hex(32),'complete':False}
         state['version']=2;state['complete']=False;state['config']=c
         ru.write('/var/lib/ovpn-installer/state.json',json.dumps(state));mutated=True
