@@ -2,7 +2,52 @@
   "version": "v0.5.0",
   "commit": "6bdb7d0c9ab16d10ca4e8e304ba7f9c792b1519b",
   "workflow_run_id": "41302671462",
-  "native_result": "pending",
-  "release_result": "pending",
-  "published": false
+  "native_result": "success",
+  "release_result": "success",
+  "published": true,
+  "url": "https://github.com/serganizm/vpnai/releases/tag/v0.5.0",
+  "assets": [
+    {
+      "name": "SHA256SUMS.txt",
+      "size": 570,
+      "digest": "sha256:3dd0bd3d7187411dc6531c9686bbe759c0e2e4478f3e40e33b1e3296ee4e2d62",
+      "browser_download_url": "https://github.com/serganizm/vpnai/releases/download/v0.5.0/SHA256SUMS.txt"
+    },
+    {
+      "name": "VPNAI-source-v0.5.0.zip",
+      "size": 439101,
+      "digest": "sha256:ef8e5b60fd81ea6b05412c6faf8bdd60b6ca0fcfc3440a7ff8db63859537e0b0",
+      "browser_download_url": "https://github.com/serganizm/vpnai/releases/download/v0.5.0/VPNAI-source-v0.5.0.zip"
+    },
+    {
+      "name": "VPNAI-v0.5.0-all-platforms.zip",
+      "size": 75544968,
+      "digest": "sha256:5f8e96e73af3217e67d9cda9e30177a799d1e631ee1d523a90c3cd493bf4edef",
+      "browser_download_url": "https://github.com/serganizm/vpnai/releases/download/v0.5.0/VPNAI-v0.5.0-all-platforms.zip"
+    },
+    {
+      "name": "VPNAI-v0.5.0-android-arm64.apk",
+      "size": 15430550,
+      "digest": "sha256:541be6b27dee9da30cba811ed734ef7250d8ac3dba10c5ec8eb18f583e4472f7",
+      "browser_download_url": "https://github.com/serganizm/vpnai/releases/download/v0.5.0/VPNAI-v0.5.0-android-arm64.apk"
+    },
+    {
+      "name": "VPNAI-v0.5.0-linux-x64.tar.gz",
+      "size": 30519183,
+      "digest": "sha256:58091851617629b9006f48e6c215d7e71732724a525d0b15b6a2581f7878c30f",
+      "browser_download_url": "https://github.com/serganizm/vpnai/releases/download/v0.5.0/VPNAI-v0.5.0-linux-x64.tar.gz"
+    },
+    {
+      "name": "VPNAI-v0.5.0-macos-arm64.zip",
+      "size": 14650507,
+      "digest": "sha256:49ef29bb06e07b01dc2545d26027aae724e3c015890a56753805b961a67c5aa4",
+      "browser_download_url": "https://github.com/serganizm/vpnai/releases/download/v0.5.0/VPNAI-v0.5.0-macos-arm64.zip"
+    },
+    {
+      "name": "VPNAI-v0.5.0-windows-x64.exe",
+      "size": 15652371,
+      "digest": "sha256:257f59a4a39199b10cd38f3497a5fe666eb83b24ef1f8e71ea72e506522b2655",
+      "browser_download_url": "https://github.com/serganizm/vpnai/releases/download/v0.5.0/VPNAI-v0.5.0-windows-x64.exe"
+    }
+  ]
 }
