@@ -4,7 +4,7 @@ root=pathlib.Path(__file__).resolve().parents[2];version=os.environ['RELEASE_TAG
 names=[f'VPNAI-{version}-android-arm64.apk',f'VPNAI-{version}-macos-arm64.zip',f'VPNAI-{version}-linux-x64.tar.gz',f'VPNAI-{version}-windows-x64.exe']
 apk=root/'.github/release-input'/names[0];proof=json.loads((apk.parent/'android-verification.json').read_text())
 assert hashlib.sha256(apk.read_bytes()).hexdigest()==proof['sha256'],'Android artifact differs from tested file'
-assert proof['version']==version and proof['instrumentation_passed'] and proof['lint_passed'] and proof['connection_limits_passed']
+assert proof['version']==version and proof['instrumentation_passed'] and proof['lint_passed'] and proof['connection_limits_passed'] and proof['profile_links_passed']
 # Rebuild the expected payload from tagged source, then compare every file to APK.
 subprocess.run([sys.executable,str(root/'android/prepare_payload.py'),str(root)],check=True)
 with zipfile.ZipFile(apk) as app,zipfile.ZipFile(root/'android/app/src/main/assets/payload.zip') as expected:

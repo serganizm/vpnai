@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Executed over pinned SSH, with DATA supplied on stdin. No shell interpolation."""
-import base64, contextlib, hashlib, hmac, io, json, os, pathlib, re, runpy, subprocess, time, zipfile
+import base64, contextlib, hashlib, hmac, io, json, os, pathlib, re, runpy, subprocess, time, zipfile, secrets
 
 try:
     import fcntl
@@ -106,9 +106,45 @@ def execute(data):
         run(args);return {'updated':True}
     if operation=='iplist-update':
         return json.loads(run(['/usr/local/sbin/ovpn-routing','update']))
+    if operation=='profile-link':
+        import grp
+        protocol=data.get('protocol')
+        if protocol not in ('udp','tcp') or not re.fullmatch(r'[A-Za-z0-9_-]{1,48}',name):raise ValueError('Некорректный профиль.')
+        with open('/run/ovpn-user.lock','a') as userlock:
+            fcntl.flock(userlock,fcntl.LOCK_SH)
+            user=records().get(name,{})
+            if not user.get('enabled') or user.get('deleted'):raise ValueError('Пользователь неактивен.')
+            profile=profiles/(name+'-'+protocol.upper()+'.ovpn')
+            if profile.is_symlink() or not profile.is_file() or profile.stat().st_size>1024*1024:raise ValueError('Файл конфигурации не найден или повреждён.')
+            body=profile.read_text();digest=hashlib.sha256(body.encode()).hexdigest()
+            root=pathlib.Path('/var/lib/ovpn-links')
+            if root.is_symlink() or not root.is_dir():raise ValueError('Сначала настройте HTTPS-ссылки на российском сервере.')
+            gid=grp.getgrnam('ovpn-links').gr_gid
+            with open('/run/ovpn-links.lock','a') as lock:
+                fcntl.flock(lock,fcntl.LOCK_EX)
+                token=data.get('token','');entry=None
+                if re.fullmatch(r'[A-Za-z0-9_-]{43}',token):
+                    file=root/(hashlib.sha256(token.encode()).hexdigest()+'.json')
+                    try:
+                        old=json.loads(file.read_text())
+                        if old.get('expires',0)>time.time() and old.get('usernames')==[name] and old.get('protocol')==protocol and hashlib.sha256(old.get('profile','').encode()).hexdigest()==digest:entry=old
+                    except (OSError,ValueError):pass
+                if entry is None:
+                    token=secrets.token_urlsafe(32);entry={'username':name+'-'+protocol.upper(),'usernames':[name],'profile':body,'protocol':protocol,'expires':int(time.time())+600}
+                    file=root/(hashlib.sha256(token.encode()).hexdigest()+'.json')
+                    fd=os.open(file,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                    try:
+                        os.fchown(fd,0,gid)
+                        with os.fdopen(fd,'w',encoding='utf-8') as stream:
+                            fd=None;json.dump(entry,stream);stream.flush();os.fsync(stream.fileno());os.fchmod(stream.fileno(),0o640)
+                    except BaseException:
+                        if fd is not None:os.close(fd)
+                        with contextlib.suppress(FileNotFoundError):file.unlink()
+                        raise
+                return {'url':'https://'+data['public_host']+'/d/'+token+'/profile.ovpn','token':token,'expires':entry['expires'],'server_time':time.time(),'filename':name+'-'+protocol.upper()+'.ovpn'}
     if operation=='link':
         args=['/usr/local/sbin/ovpn-link','create',name] if name else ['/usr/local/sbin/ovpn-link','create-all']
-        return json.loads(run(args))
+        result=json.loads(run(args));result['server_time']=time.time();return result
     if operation=='profiles':
         with open('/run/ovpn-user.lock','a') as lock:
             fcntl.flock(lock,fcntl.LOCK_SH)

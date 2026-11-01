@@ -15,12 +15,12 @@ def comment(value):
     return value
 
 class AdminService:
-    def __init__(self,application):self.app=application;self.settings=None;self.lock=threading.RLock();self.connected=False;self.draft={};self.draft_revision=0
+    def __init__(self,application):self.app=application;self.settings=None;self.lock=threading.RLock();self.connected=False;self.draft={};self.draft_revision=0;self.share_links={}
     def close(self):
         with self.lock:
             if self.settings:
                 for role in ('ru','nl'):self.settings[role].clear()
-            self.settings=None;self.connected=False
+            self.settings=None;self.connected=False;self.share_links.clear()
     def connection_session(self,data=None):
         with self.app.lock,self.lock:
             if self.app.stopping:raise backend.UserError('Приложение завершает работу.')
@@ -93,6 +93,13 @@ class AdminService:
                     request['password']=password
                 if operation=='delete' and data.get('confirmation')!=name:raise backend.UserError('Для удаления введите логин пользователя.')
                 return self.remote('ru',operation,**request)
+            if operation=='profile-link':
+                name=username(data.get('name'));protocol=data.get('protocol')
+                if protocol not in ('udp','tcp'):raise backend.UserError('Выберите UDP или TCP.')
+                key=(name,protocol);cached=self.share_links.get(key,{})
+                answer=self.remote('ru',operation,name=name,protocol=protocol,token=cached.get('token',''),public_host=self.settings['ru']['host'])
+                self.share_links[key]=answer
+                return {k:v for k,v in answer.items() if k!='token'}
             if operation in ('profiles','link'):return self.remote('ru',operation,name=username(data.get('name',''),optional=True))
             if operation=='routes':return self.remote('ru','routes')
             if operation=='route-change':
