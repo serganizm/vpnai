@@ -59,7 +59,9 @@ class VerificationRegression(unittest.TestCase):
    calls.append(args)
    return types.SimpleNamespace(returncode=28 if 'curl' in args else 0,stdout='',stderr='PRIVATE-REMOTE-OUTPUT')
   out=io.StringIO();c=self.config('full_mixed')
-  with patch.object(subprocess,'run',side_effect=run),contextlib.redirect_stdout(out),self.assertRaises(SystemExit):exec(engine.PROBE,{'DATA':c,'json':json})
+  with __import__('tempfile').TemporaryDirectory() as tmp:
+   code=engine.PROBE.replace('/run/openvpn-server/',tmp+'/')
+   with patch.object(subprocess,'run',side_effect=run),contextlib.redirect_stdout(out),self.assertRaises(SystemExit):exec(code,{'DATA':c,'json':json})
   self.assertIn('VPNAI_DIAG:NL_EXIT',out.getvalue());self.assertNotIn('PRIVATE-REMOTE',out.getvalue())
   self.assertIn(('ip','netns','del','ovpn-install-check'),[tuple(c) for c in calls])
  def test_ssh_authentication_failure_names_server_without_secret(self):

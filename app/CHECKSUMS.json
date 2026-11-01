@@ -33,7 +33,7 @@
   "app/tests/test_exit.py": "4f7b1f429a781c468ea5ad8cd984c099c560ea1711df59d77155af142e3fdc9b",
   "app/tests/test_app.py": "22507662a6c88806750b5265a379f8f9a49710bb21dafbb428e00194eb2b655a",
   "app/tests/test_alias_session.py": "79d0cc732577aeb88c4177b22fa599daa95026b0ddd85fd00fc5ec968c7a412d",
-  "app/tests/test_verification.py": "47cf6e9209a551d8dc9ee00471068003bc0a897df8afaea2828bb554e7183cfa",
+  "app/tests/test_verification.py": "bdc51923d9ce0ebe716c4ad18dc03fb662664844323fcee55241fe5890053591",
   "app/tests/test_tunnel.py": "ca99b31c908c2485ccb4bb314c62bbda137b86000167651b6c220b9e9dfd1059",
   "app/static/index.html": "e278534040e963b9be0084847781da926243caf20fdf5da0567d8007c02d5476",
   "app/static/qrcode.js": "18ae399f81182bc9de916e9c77b195df20cc58d6f2d55a62b085a299f1bf1780",
