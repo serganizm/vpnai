@@ -1,4 +1,4 @@
-import contextlib,copy,hashlib,json,pathlib,subprocess,sys,tempfile,threading,unittest
+import contextlib,copy,hashlib,json,pathlib,shlex,shutil,subprocess,sys,tempfile,threading,unittest
 from unittest.mock import patch
 ROOT=pathlib.Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 import limits_backend as client,limits_remote as remote,session_limits as counter,backend
@@ -8,6 +8,24 @@ class ClientValidation(unittest.TestCase):
    with self.subTest(value=value),self.assertRaises(backend.UserError):client.validate(value)
   for value in [0,1,1000]:self.assertEqual(client.validate(value),value)
   self.assertIsNone(client.validate(None,True))
+class OpenVPNCommandSyntax(unittest.TestCase):
+ def commands(self):
+  for name in ['ru.conf','ru-tcp.conf']:
+   for line in (ROOT/'core/payload/ru/etc/openvpn/server'/name).read_text().splitlines():
+    if line.startswith(('client-connect ','client-disconnect ')):yield line
+ def test_hooks_have_exactly_one_command_argument(self):
+  for line in self.commands():
+   parts=shlex.split(line);self.assertEqual(len(parts),2,line);self.assertEqual(len(shlex.split(parts[1])),2,line)
+ @unittest.skipUnless(shutil.which('openvpn') or pathlib.Path('/usr/sbin/openvpn').exists(),'OpenVPN parser not installed on this OS')
+ def test_real_openvpn_parser_accepts_generated_hooks(self):
+  binary=shutil.which('openvpn') or '/usr/sbin/openvpn'
+  with tempfile.TemporaryDirectory() as folder:
+   config=pathlib.Path(folder)/'test.conf'
+   for mode in ['connect','connect-full']:
+    lines=[line.replace('/usr/local/libexec/ovpn-session-limit','/bin/true').replace(' connect"',' '+mode+'"') for line in self.commands()]
+    config.write_text('\n'.join(dict.fromkeys(lines))+'\n')
+    result=subprocess.run([binary,'--config',str(config),'--show-ciphers'],capture_output=True,text=True,timeout=10)
+    self.assertEqual(result.returncode,0,result.stdout+result.stderr)
 @unittest.skipIf(sys.platform=='win32','Linux server flock/proc integration simulated on Unix')
 class LimitsIntegration(unittest.TestCase):
  def setUp(self):
@@ -96,3 +114,21 @@ class LimitsIntegration(unittest.TestCase):
  def test_nat_rebind_keeps_the_same_session_identity(self):
   self.update(1);key,created=counter.reserve(self.env,100);same,created_again=counter.reserve(dict(self.env,trusted_ip='1.1.1.1',trusted_port='65000'),100);self.assertEqual(key,same);self.assertFalse(created_again)
   with counter.ledger() as rows:self.assertEqual(len(rows),1)
+
+ def test_full_tunnel_uses_quoted_connect_full_and_is_detected(self):
+  for f in remote.CONF:f.write_text('dev tun-test\npush "redirect-gateway def1"\n')
+  self.update(2);self.assertTrue(remote.read()['installed'])
+  for f in remote.CONF:
+   hooks=[shlex.split(line) for line in f.read_text().splitlines() if line.startswith(('client-connect ','client-disconnect '))]
+   self.assertTrue(all(len(row)==2 for row in hooks));self.assertEqual(shlex.split(hooks[0][1])[-1],'connect-full')
+ def test_preflight_error_never_restarts_services_and_shows_reason(self):
+  original={f:f.read_bytes() for f in remote.CONF}
+  run=remote.subprocess.run.side_effect
+  def fail(args,**kw):
+   if args[0]=='openvpn':raise subprocess.CalledProcessError(1,args,output='Options error: fixture failure')
+   return run(args,**kw)
+  with patch.object(remote.subprocess,'run',side_effect=fail):
+   with self.assertRaisesRegex(ValueError,'Options error: fixture failure'):self.update(2)
+  self.assertFalse(any(args[:2]==['systemctl','restart'] for args in self.commands))
+  for f,body in original.items():self.assertEqual(f.read_bytes(),body)
+  self.assertFalse(remote.HELPER.exists());self.assertFalse(remote.POLICY.exists())

@@ -66,7 +66,7 @@ def snapshot(data):
   if net.version!=4 or not net.is_private or len(port)!=2 or not port[1].isdigit():raise ValueError('Не распознаны параметры OpenVPN.')
   auth=[r for r in f if r[0]=='auth-user-pass-verify']
   if len(auth)>1 or auth and auth[0][1:]!=[AUTH,'via-file']:raise ValueError('Нестандартный обработчик входа требует отдельной проверки.')
-  settings.append({'net':str(net),'port':int(port[1]),'password':bool(auth),'split':any(r[0]=='client-connect' and r[1:] in (['/usr/local/libexec/ovpn-split-connect'],['/usr/local/libexec/ovpn-session-limit','connect']) for r in f),'redirect':any(r[0]=='push' and len(r)>1 and r[1].startswith('redirect-gateway ') for r in f)})
+  settings.append({'net':str(net),'port':int(port[1]),'password':bool(auth),'split':any(r[0]=='client-connect' and (r[1:]==['/usr/local/libexec/ovpn-split-connect'] or len(r)==2 and shlex.split(r[1])==['/usr/local/libexec/ovpn-session-limit','connect']) for r in f),'redirect':any(r[0]=='push' and len(r)>1 and r[1].startswith('redirect-gateway ') for r in f)})
  if settings[0]['port']!=settings[1]['port'] or settings[0]['password']!=settings[1]['password']:raise ValueError('Параметры UDP и TCP различаются. Автоматическое переключение не выполнено.')
  network=files[NETWORK].decode()
  if all(s['split'] and not s['redirect'] for s in settings):routing='split'

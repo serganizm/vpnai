@@ -179,7 +179,7 @@ for name in ('ru.conf','ru-tcp.conf'):
  p=base/name
  if not p.exists():profiles.append(None);continue
  lines=[s.strip() for s in p.read_text().splitlines() if s.strip() and not s.lstrip().startswith(('#',';'))]
- profiles.append({'redirect':any(s.startswith('push ') and 'redirect-gateway' in s for s in lines),'split':any(s.startswith('client-connect ') and ('ovpn-split-connect' in s or s.endswith('ovpn-session-limit connect')) for s in lines),'password':any(s.startswith('auth-user-pass-verify ') for s in lines)})
+ profiles.append({'redirect':any(s.startswith('push ') and 'redirect-gateway' in s for s in lines),'split':any(s.startswith('client-connect ') and ('ovpn-split-connect' in s or s.rstrip(chr(34)+chr(39)).endswith('ovpn-session-limit connect')) for s in lines),'password':any(s.startswith('auth-user-pass-verify ') for s in lines)})
 p=pathlib.Path('/usr/local/sbin/ovpn-network')
 network=p.read_text() if p.exists() else ''
 print(json.dumps({'profiles':profiles,'list_classifier':'--match-set ovpn_nl' in network,'split_tools':all(pathlib.Path(p).is_file() for p in ('/usr/local/sbin/ovpn-split-routes','/usr/local/libexec/ovpn-split-connect'))}))
@@ -379,7 +379,7 @@ def render(text,c,role):
     if 'server ' in s and 'verify-client-cert require' in s:
         if c['routing_mode']!='split':
             s=s.replace('client-connect /usr/local/libexec/ovpn-split-connect','push "redirect-gateway def1"')
-            s=s.replace('client-connect /usr/local/libexec/ovpn-session-limit connect','client-connect /usr/local/libexec/ovpn-session-limit connect-full\npush "redirect-gateway def1"')
+            s=s.replace('client-connect "/usr/local/libexec/ovpn-session-limit connect"','client-connect "/usr/local/libexec/ovpn-session-limit connect-full"\npush "redirect-gateway def1"')
         if c['auth_mode']=='certificate':s='\n'.join(l for l in s.splitlines() if not l.startswith('auth-user-pass-verify '))+'\n'
     if c['routing_mode']=='full_nl' and 'iptables -t mangle -A OVPN_CLASSIFY' in s:
         s='\n'.join(l for l in s.splitlines() if not ('OVPN_CLASSIFY' in l and '--match-set ovpn_force_ru' in l))+'\n'

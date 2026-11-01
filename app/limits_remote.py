@@ -24,7 +24,11 @@ def read():
  if not isinstance(users,dict):raise ValueError('Повреждён список пользователей.')
  certificates={name:certificate(name) for name in users if re.fullmatch(r'[A-Za-z0-9_-]{1,48}',name)}
  bodies=[f.read_text() for f in CONF]
- installed=HELPER.exists() and all('client-connect /usr/local/libexec/ovpn-session-limit connect' in b and 'client-disconnect /usr/local/libexec/ovpn-session-limit disconnect' in b for b in bodies)
+ def configured(body):
+  rows=[shlex.split(line,comments=True) for line in body.splitlines()]
+  connect=[row for row in rows if row and row[0]=='client-connect'];disconnect=[row for row in rows if row and row[0]=='client-disconnect']
+  return len(connect)==len(disconnect)==1 and len(connect[0])==len(disconnect[0])==2 and shlex.split(connect[0][1]) in (['/usr/local/libexec/ovpn-session-limit','connect'],['/usr/local/libexec/ovpn-session-limit','connect-full']) and shlex.split(disconnect[0][1])==['/usr/local/libexec/ovpn-session-limit','disconnect']
+ installed=HELPER.exists() and all(configured(b) for b in bodies)
  revision=hashlib.sha256(json.dumps({'policy':p,'configs':bodies,'users':hashlib.sha256(users_body).hexdigest(),'certificates':certificates,'helper':hashlib.sha256(HELPER.read_bytes()).hexdigest() if HELPER.exists() else None},sort_keys=True).encode()).hexdigest()
  p=dict(p);p['users']={n:v for n,v in p['users'].items() if p.get('identities',{}).get(n)==certificate(n) and certificate(n) is not None}
  return dict(p,installed=installed,revision=revision)
@@ -71,13 +75,20 @@ def execute(data):
    try:tmp.write_bytes(body);tmp.chmod(mode);tmp.replace(f)
    finally:
     with contextlib.suppress(FileNotFoundError):tmp.unlink()
+  services_touched=False
   try:
    if not current['installed']:
     source=data['helper'];compile(source,'ovpn-session-limit','exec');write(HELPER,('#!/usr/bin/python3\n'+source).encode(),0o700)
+    prepared={}
     for f,body in bodies.items():
-     lines=body.decode().splitlines();lines=[line for line in lines if not line.lstrip().startswith('client-connect ')];mode='connect-full' if any(line.startswith('push ') and 'redirect-gateway' in line for line in lines) else 'connect';lines+=['client-connect /usr/local/libexec/ovpn-session-limit '+mode,'client-disconnect /usr/local/libexec/ovpn-session-limit disconnect'];write(f,('\n'.join(lines)+'\n').encode(),before[str(f)]['mode'])
+     lines=body.decode().splitlines();lines=[line for line in lines if not line.lstrip().startswith('client-connect ')];mode='connect-full' if any(line.startswith('push ') and 'redirect-gateway' in line for line in lines) else 'connect'
+     lines+=['client-connect '+json.dumps('/usr/local/libexec/ovpn-session-limit '+mode),'client-disconnect '+json.dumps('/usr/local/libexec/ovpn-session-limit disconnect')]
+     prepared[f]=('\n'.join(lines)+'\n').encode();candidate=backup/(f.name+'.check');write(candidate,prepared[f])
+     command(['openvpn','--config',str(candidate),'--show-ciphers'])
+    for f,body in prepared.items():write(f,body,before[str(f)]['mode'])
    write(POLICY,json.dumps(p,ensure_ascii=False,indent=2).encode())
-   for unit in active:command(['systemctl','restart',unit]);command(['systemctl','is-active','--quiet',unit])
+   for unit in active:
+    services_touched=True;command(['systemctl','restart',unit]);command(['systemctl','is-active','--quiet',unit])
   except BaseException as original:
    errors=[]
    for f in paths:
@@ -87,9 +98,10 @@ def execute(data):
       if f.exists():f.unlink()
      else:write(f,base64.b64decode(old['body']),old['mode'])
     except Exception:errors.append(str(f))
-   for unit in active:
+   for unit in active if services_touched else []:
     try:command(['systemctl','restart',unit])
     except Exception:errors.append(unit)
    if errors:raise ValueError('Применение и откат не завершены. Резервная копия: '+str(backup)) from original
-   raise ValueError('Лимиты не применены; исходные файлы восстановлены. Резервная копия: '+str(backup)) from original
+   detail=str(getattr(original,'stderr','') or getattr(original,'stdout','') or original).strip()[:1200]
+   raise ValueError('Лимиты не применены; исходные файлы восстановлены. Причина: '+detail+' Резервная копия: '+str(backup)) from original
   return dict(read(),backup=str(backup),restarted=bool(active))
