@@ -27,3 +27,16 @@ chaquopy {
         }
     }
 }
+
+// Always package current application sources before compiling Android assets.
+def prepareVpnaiPayload = tasks.register('prepareVpnaiPayload', Exec) {
+    inputs.dir file('../../app')
+    inputs.dir file('../../docs')
+    inputs.dir file('../ui')
+    inputs.file file('../../readme.txt')
+    inputs.file file('../prepare_payload.py')
+    outputs.file file('src/main/assets/payload.zip')
+    def hostPython = System.getenv('VPNAI_BUILD_PYTHON') ?: (System.getProperty('os.name').toLowerCase().contains('windows') ? 'python' : 'python3')
+    commandLine hostPython, file('../prepare_payload.py').absolutePath, file('../..').absolutePath
+}
+tasks.named('preBuild').configure { dependsOn prepareVpnaiPayload }

@@ -9,7 +9,7 @@ assert proof['version']==version and proof['instrumentation_passed'] and proof['
 subprocess.run([sys.executable,str(root/'android/prepare_payload.py'),str(root)],check=True)
 with zipfile.ZipFile(apk) as app,zipfile.ZipFile(root/'android/app/src/main/assets/payload.zip') as expected:
  with zipfile.ZipFile(io.BytesIO(app.read('assets/payload.zip'))) as actual:
-  assert set(actual.namelist())==set(expected.namelist()),'APK payload file list differs'
+  assert set(actual.namelist())==set(expected.namelist()),'APK payload file list differs: missing '+str(set(expected.namelist())-set(actual.namelist()))+'; extra '+str(set(actual.namelist())-set(expected.namelist()))
   for name in expected.namelist():
    if name=='app/CHECKSUMS.json':
     assert json.loads(actual.read(name))==json.loads(expected.read(name)),'APK manifest differs'
