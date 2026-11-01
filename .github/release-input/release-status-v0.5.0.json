@@ -2,7 +2,7 @@
   "version": "v0.5.0",
   "commit": "c464b38fb3d36ca89018cb6f8d228ef6f6287ea8",
   "workflow_run_id": "41302217424",
-  "native_result": "pending",
-  "release_result": "pending",
+  "native_result": "success",
+  "release_result": "failure",
   "published": false
 }
