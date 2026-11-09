@@ -45,7 +45,7 @@ class Application:
             if self.stopping or any(job.status=='running' for job in self.jobs.values()):raise backend.UserError('Дождитесь завершения текущей операции.')
             self.install_signature=None
             result=backend.read_update_configuration(settings)
-            nl=backend.Remote('nl',dict(settings['nl']))
+            nl=backend.make_remote('nl',settings)
             try:nl.connect()
             finally:nl.close()
             self.install_signature=self.connection_signature(settings)

@@ -33,14 +33,18 @@ class AdminService:
                 else:revision=self.draft_revision+1;payload=data
                 saved=backend.session_payload(payload)
                 if revision>=self.draft_revision:
-                    self.draft={role:dict(saved.get(role,{})) for role in ('ru','nl')};self.draft_revision=revision
+                    self.draft={role:dict(saved.get(role,{})) for role in ('ru','nl')}
+                    for key in ('eu_ssh','eu_target'):
+                        if key in saved:self.draft[key]=saved[key]
+                    self.draft_revision=revision
             if not self.draft and self.settings:
                 self.draft={role:{key:value for key,value in self.settings[role].items() if key!='fingerprint'} for role in ('ru','nl')}
+                self.draft['eu_ssh']=self.settings.get('eu_ssh','direct');self.draft['eu_target']=self.settings.get('eu_target','public')
             return {'draft':copy.deepcopy(self.draft),'revision':self.draft_revision}
     def remote(self,role,operation,settings=None,**data):
         current=settings or self.settings
         if current is None:raise backend.UserError('Сначала подключитесь к серверам.')
-        ep=backend.Remote(role,copy.deepcopy(current[role]))
+        ep=backend.make_remote(role,current)
         try:
             ep.connect();ep.lock();answer=json.loads(ep.python(REMOTE,dict(data,operation=operation)))
             if not answer.get('ok'):raise backend.UserError(answer.get('error','Ошибка сервера.'))
@@ -66,7 +70,7 @@ class AdminService:
                 except backend.UserError:
                     servers[role]={'host':self.settings[role]['host'],'available':False};warnings.append('Нет связи с '+('российским' if role=='ru' else 'зарубежным')+' сервером.')
             self.connected=all(s['available'] for s in servers.values())
-            return dict(overview,connected=self.connected,servers=servers,warnings=warnings)
+            return dict(overview,connected=self.connected,servers=servers,warnings=warnings,eu_ssh=self.settings.get('eu_ssh','direct'),eu_target=self.settings.get('eu_target','public'))
         except Exception:self.connected=False;raise
     def dispatch(self,operation,data):
         if not isinstance(data,dict):raise backend.UserError('Ожидается JSON-объект.')

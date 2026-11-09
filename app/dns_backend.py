@@ -39,7 +39,7 @@ def validate(data):
  return {'provider':provider,'servers':result}
 
 def remote(settings,role,operation,**data):
- ep=backend.Remote(role,copy.deepcopy(settings[role]))
+ ep=backend.make_remote(role,settings)
  try:
   ep.connect();ep.lock();return execute(ep,operation,**data)
  finally:ep.close()

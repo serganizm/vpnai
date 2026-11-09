@@ -37,6 +37,11 @@ def validate(data):
     if clean['action'] not in ACTIONS or clean['routing'] not in MODES or clean['auth'] not in AUTH:raise UserError('Неизвестный вариант настройки.')
     clean['ru_routes']=cidrs(data.get('ru_routes',''));clean['eu_routes']=cidrs(data.get('eu_routes',''))
     clean['initial_user']=data.get('initial_user','user1').strip();clean['comment']=data.get('comment','').strip()
+    eu_ssh=data.get('eu_ssh','direct');eu_target=data.get('eu_target','public')
+    if eu_ssh not in ('direct','via_ru'):raise UserError('SSH к EU: выберите «напрямую» или «через RU».')
+    if eu_target not in ('public','gre'):raise UserError('Цель SSH к EU: публичный IP или GRE.')
+    if eu_ssh=='direct':eu_target='public'
+    clean['eu_ssh']=eu_ssh;clean['eu_target']=eu_target
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,48}',clean['initial_user']):raise UserError('Логин: латинские буквы, цифры, _ или -, до 48 символов.')
     if len(clean['comment'])>200 or any(ord(c)<32 or ord(c)==127 for c in clean['comment']):raise UserError('Комментарий: до 200 символов, без управляющих знаков.')
     try:clean['vpn_port']=int(data.get('vpn_port',1194))
@@ -80,7 +85,7 @@ def validate(data):
 def session_payload(data):
     if not isinstance(data,dict):raise UserError('Некорректные данные текущего сеанса.')
     result={}
-    fields=('connection_limit','action','routing','auth','initial_user','comment','vpn_port','update_packages','ru_routes','eu_routes','update_revision','update_user_count','update_loaded_pair','update_legacy','update_dirty')
+    fields=('connection_limit','action','routing','auth','initial_user','comment','vpn_port','update_packages','ru_routes','eu_routes','update_revision','update_user_count','update_loaded_pair','update_legacy','update_dirty','eu_ssh','eu_target')
     server_fields=('host','port','user','method','password','key','key_path','passphrase','alias')
     def copy_value(value):
         if isinstance(value,str) and len(value)<=150000:return value
@@ -210,24 +215,111 @@ def get_paramiko():
 
 def fingerprint(key):return 'SHA256:'+base64.b64encode(hashlib.sha256(key.asbytes()).digest()).decode().rstrip('=')
 
+GRE_EU_HOST='10.78.0.2'
+
+def eu_connect_target(settings):
+    """TCP target for EU when jumping via RU: public IP or GRE peer."""
+    nl=settings['nl']
+    if settings.get('eu_ssh')=='via_ru' and settings.get('eu_target')=='gre':
+        return GRE_EU_HOST,nl['port']
+    return nl['host'],nl['port']
+
+def make_remote(role,settings):
+    """Build Remote; for EU with eu_ssh=via_ru open SSH through authenticated RU jump."""
+    if role!='nl' or settings.get('eu_ssh')!='via_ru':
+        return Remote(role,dict(settings[role]))
+    host,port=eu_connect_target(settings)
+    return Remote('nl',dict(settings['nl']),jump=dict(settings['ru']),connect_host=host,connect_port=port)
+
+def _auth_options(pm,settings):
+    options=dict(hostname=settings['host'],port=settings['port'],username='root',timeout=10,banner_timeout=12,auth_timeout=15,allow_agent=False,look_for_keys=False)
+    if settings['method']=='password':options['password']=settings['password'];return options
+    key_text=settings['key']
+    if settings['method']=='local-key':
+        path=pathlib.Path(settings['key_path']).expanduser()
+        if not path.is_file() or path.stat().st_size>65536:raise UserError('Локальный приватный ключ не найден или слишком большой. Укажите путь к файлу без .pub.')
+        try:key_text=path.read_text()
+        except (OSError,UnicodeError):raise UserError('Не удалось прочитать локальный приватный ключ.')
+    key=None
+    for cls in (pm.Ed25519Key,pm.ECDSAKey,pm.RSAKey):
+        try:key=cls.from_private_key(io.StringIO(key_text),password=settings['passphrase'] or None);break
+        except Exception:continue
+    if key is None:raise UserError('Не удалось прочитать приватный SSH-ключ. Проверьте формат и пароль ключа.')
+    options['pkey']=key;return options
+
+def _open_eu_channel(settings):
+    """Authenticate to RU, then open a direct-tcpip channel to the EU SSH target."""
+    pm=get_paramiko();ru=settings['ru'];host,port=eu_connect_target(settings)
+    if not ru.get('fingerprint'):raise UserError('Сначала получите и подтвердите SSH-отпечатки.')
+    class Pin(pm.MissingHostKeyPolicy):
+        def missing_host_key(_self,client,hostname,key):
+            if not secrets.compare_digest(fingerprint(key),ru['fingerprint']):raise UserError('SSH-отпечаток сервера изменился. Соединение отклонено.')
+    jump=pm.SSHClient();jump.set_missing_host_key_policy(Pin())
+    try:
+        jump.connect(**_auth_options(pm,ru))
+        jump.get_transport().set_keepalive(20)
+        channel=jump.get_transport().open_channel('direct-tcpip',(host,port),('127.0.0.1',0),timeout=12)
+        return jump,channel
+    except UserError:
+        with contextlib.suppress(Exception):jump.close();raise
+    except Exception as e:
+        with contextlib.suppress(Exception):jump.close()
+        target=host+':'+str(port)
+        if isinstance(e,getattr(pm,'AuthenticationException',())):
+            raise UserError('SSH: российский сервер '+ru['host']+':'+str(ru['port'])+' отклонил авторизацию при переходе к EU ('+target+').') from None
+        if isinstance(e,(TimeoutError,socket.timeout)):
+            raise UserError('SSH: не удалось открыть канал к EU '+target+' через российский сервер '+ru['host']+'.') from None
+        raise UserError('SSH: переход к EU '+target+' через RU '+ru['host']+' не удался ('+type(e).__name__+'). Проверьте, что с RU доступен SSH EU, или выберите GRE после установки.') from None
+
+def _read_host_key(sock,label):
+    pm=get_paramiko();transport=None
+    try:
+        transport=pm.Transport(sock);transport.start_client(timeout=8);return fingerprint(transport.get_remote_server_key())
+    except Exception as error:
+        raise UserError('Не удалось автоматически получить SSH-ключ: '+label+' ('+type(error).__name__+'). Проверьте адрес, порт и доступность. Пароль ещё не передавался.') from None
+    finally:
+        if transport:transport.close()
+
 def fingerprints(settings):
-    """Read host keys without authenticating or running commands."""
-    pm=get_paramiko();result={}
-    for role in ('ru','nl'):
-        s=settings[role];sock=None;transport=None
+    """Read host keys. Direct path never authenticates; via_ru authenticates to RU only to reach EU."""
+    result={};jump=None;channel=None
+    try:
+        ru=settings['ru'];ru_label='российский сервер '+ru['host']+':'+str(ru['port'])
         try:
-            sock=socket.create_connection((s['host'],s['port']),timeout=8)
-            transport=pm.Transport(sock);transport.start_client(timeout=8)
-            result[role]=fingerprint(transport.get_remote_server_key())
+            sock=socket.create_connection((ru['host'],ru['port']),timeout=8)
+            try:result['ru']=_read_host_key(sock,ru_label)
+            finally:sock.close()
+        except UserError:raise
         except Exception as error:
-            raise UserError('Не удалось автоматически получить SSH-ключ: '+('российский' if role=='ru' else 'зарубежный')+' сервер '+s['host']+':'+str(s['port'])+' ('+type(error).__name__+'). Проверьте адрес, порт и доступность. Пароль ещё не передавался.') from None
-        finally:
-            if transport:transport.close()
-            if sock:sock.close()
-    return result
+            raise UserError('Не удалось автоматически получить SSH-ключ: '+ru_label+' ('+type(error).__name__+'). Проверьте адрес, порт и доступность. Пароль ещё не передавался.') from None
+        nl=settings['nl'];label='зарубежный сервер '+nl['host']+':'+str(nl['port'])
+        if settings.get('eu_ssh')=='via_ru':
+            jump_settings=dict(settings);jump_settings['ru']=dict(settings['ru'],fingerprint=result['ru'])
+            jump,channel=_open_eu_channel(jump_settings)
+            host,port=eu_connect_target(settings)
+            label+=' через RU → '+host+':'+str(port)
+            result['nl']=_read_host_key(channel,label)
+        else:
+            try:
+                sock=socket.create_connection((nl['host'],nl['port']),timeout=8)
+                try:result['nl']=_read_host_key(sock,label)
+                finally:sock.close()
+            except UserError:raise
+            except Exception as error:
+                raise UserError('Не удалось автоматически получить SSH-ключ: '+label+' ('+type(error).__name__+'). Проверьте адрес, порт и доступность. Пароль ещё не передавался.') from None
+        return result
+    finally:
+        if channel:
+            with contextlib.suppress(Exception):channel.close()
+        if jump:
+            with contextlib.suppress(Exception):jump.close()
 
 class Remote(engine.Endpoint):
-    def __init__(self,role,settings):self.role=role;self.settings=settings;self.client=None;self.host=settings['host'];self.guard=None;self.guard_stop=threading.Event();self.guard_write=threading.Lock();self.guard_thread=None;self.guard_failed=False;self.guard_path=None;self.guard_token=None;self.bootstrap_lock=False;self.lock_release_pending=False
+    def __init__(self,role,settings,jump=None,connect_host=None,connect_port=None):
+        self.role=role;self.settings=settings;self.client=None;self.host=settings['host']
+        self.jump=jump;self.jump_client=None
+        self.connect_host=connect_host or settings['host'];self.connect_port=settings.get('port',22) if connect_port is None else connect_port
+        self.guard=None;self.guard_stop=threading.Event();self.guard_write=threading.Lock();self.guard_thread=None;self.guard_failed=False;self.guard_path=None;self.guard_token=None;self.bootstrap_lock=False;self.lock_release_pending=False
     def connect(self):
         pm=get_paramiko();expected=self.settings['fingerprint']
         if not expected:raise UserError('Сначала получите и подтвердите SSH-отпечатки.')
@@ -235,25 +327,25 @@ class Remote(engine.Endpoint):
             def missing_host_key(_self,client,hostname,key):
                 if not secrets.compare_digest(fingerprint(key),expected):raise UserError('SSH-отпечаток сервера изменился. Соединение отклонено.')
         client=pm.SSHClient();client.set_missing_host_key_policy(Pin());self.client=client
-        s=self.settings;options=dict(hostname=s['host'],port=s['port'],username='root',timeout=10,banner_timeout=12,auth_timeout=15,allow_agent=False,look_for_keys=False)
-        if s['method']=='password':options['password']=s['password']
-        else:
-            key_text=s['key']
-            if s['method']=='local-key':
-                path=pathlib.Path(s['key_path']).expanduser()
-                if not path.is_file() or path.stat().st_size>65536:raise UserError('Локальный приватный ключ не найден или слишком большой. Укажите путь к файлу без .pub.')
-                try:key_text=path.read_text()
-                except (OSError,UnicodeError):raise UserError('Не удалось прочитать локальный приватный ключ.')
-            key=None
-            for cls in (pm.Ed25519Key,pm.ECDSAKey,pm.RSAKey):
-                try:key=cls.from_private_key(io.StringIO(key_text),password=s['passphrase'] or None);break
-                except Exception:continue
-            if key is None:raise UserError('Не удалось прочитать приватный SSH-ключ. Проверьте формат и пароль ключа.')
-            options['pkey']=key
-        try:client.connect(**options)
+        s=self.settings;options=_auth_options(pm,s);options['hostname']=self.connect_host;options['port']=self.connect_port
+        try:
+            if self.jump:
+                # Jump settings must already carry the trusted RU fingerprint.
+                jump_settings=dict(self.jump)
+                if not jump_settings.get('fingerprint'):raise UserError('Сначала получите и подтвердите SSH-отпечатки.')
+                class JumpPin(pm.MissingHostKeyPolicy):
+                    def missing_host_key(_self,client,hostname,key):
+                        if not secrets.compare_digest(fingerprint(key),jump_settings['fingerprint']):raise UserError('SSH-отпечаток сервера изменился. Соединение отклонено.')
+                jump=pm.SSHClient();jump.set_missing_host_key_policy(JumpPin())
+                jump.connect(**_auth_options(pm,jump_settings));jump.get_transport().set_keepalive(20);self.jump_client=jump
+                channel=jump.get_transport().open_channel('direct-tcpip',(self.connect_host,self.connect_port),('127.0.0.1',0),timeout=12)
+                options['sock']=channel
+            client.connect(**options)
         except UserError:raise
         except Exception as e:
-            server=('российский' if self.role=='ru' else 'зарубежный')+' сервер '+self.host+':'+str(s['port'])
+            via=' через RU' if self.jump else ''
+            server=('российский' if self.role=='ru' else 'зарубежный')+' сервер '+self.host+':'+str(s['port'])+via
+            if self.jump and (self.connect_host,self.connect_port)!=(self.host,s['port']):server+=' → '+self.connect_host+':'+str(self.connect_port)
             if isinstance(e,getattr(pm,'AuthenticationException',())):
                 raise UserError('SSH: '+server+' отклонил авторизацию ('+('пароль' if s['method']=='password' else 'ключ')+'). Проверьте данные именно этого сервера и разрешённый способ входа. Получение отпечатка не проверяет пароль.') from None
             if isinstance(e,(TimeoutError,socket.timeout)):
@@ -338,8 +430,10 @@ class Remote(engine.Endpoint):
         finally:
             if self.client:
                 with contextlib.suppress(Exception):self.client.close()
+            if self.jump_client:
+                with contextlib.suppress(Exception):self.jump_client.close()
             if self.guard_thread and self.guard_thread is not threading.current_thread():self.guard_thread.join(timeout=1)
-            self.guard=None;self.guard_thread=None;self.client=None;self.guard_path=None;self.guard_token=None;self.bootstrap_lock=False;self.settings.clear()
+            self.guard=None;self.guard_thread=None;self.client=None;self.jump_client=None;self.guard_path=None;self.guard_token=None;self.bootstrap_lock=False;self.settings.clear()
 
 SYSTEM_INFO='''set -e
 . /etc/os-release
@@ -428,7 +522,7 @@ def available_backups(settings):
     endpoints=[]
     try:
         for role in ('ru','nl'):
-            ep=Remote(role,dict(settings[role]));endpoints.append(ep);ep.connect()
+            ep=make_remote(role,settings);endpoints.append(ep);ep.connect()
         pair={role+'_ip':settings[role]['host'] for role in ('ru','nl')}
         rows=[json.loads(backups.remote(ep,pair,'list')) for ep in endpoints]
         return backups.catalogue(*rows)
@@ -532,9 +626,10 @@ with open('/run/ovpn-user.lock','a') as lock:
 
 def real_run(job):
     s=job.settings;c=config(s);engine.validate(c)
-    endpoints=[Remote('ru',dict(s['ru'])),Remote('nl',dict(s['nl']))];ru,nl=endpoints;mutated=False;previous=None;current_update=False;update_snapshot=None
+    endpoints=[make_remote('ru',s),make_remote('nl',s)];ru,nl=endpoints;mutated=False;previous=None;current_update=False;update_snapshot=None
     try:
-        job.event('SSH',3,'Подключение к двум указанным серверам с проверкой отпечатков.')
+        ssh_note='EU через RU ('+( 'GRE '+GRE_EU_HOST if s.get('eu_target')=='gre' else 'публичный IP')+').' if s.get('eu_ssh')=='via_ru' else 'оба сервера напрямую.'
+        job.event('SSH',3,'Подключение к серверам с проверкой отпечатков: '+ssh_note)
         for ep in endpoints:job.checkpoint();ep.connect()
         job.ssh_connected=True
         if s['action'] not in ('check','verify'):
