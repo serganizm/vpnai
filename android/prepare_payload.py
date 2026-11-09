@@ -57,8 +57,7 @@ def prepare(source):
                 continue
             files[str(path.relative_to(source))] = path.read_bytes()
     files['readme.txt'] = (source / 'readme.txt').read_bytes()
-    for ui in (ROOT / 'ui').iterdir():
-        if ui.is_file(): files['app/static/' + ui.name] = ui.read_bytes()
+    # Single UI source: app/static. android/ui is kept in sync for reference only.
     js = files['app/static/app.js'].decode()
     old = "const blob=await r.blob(),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=suffix==='report'?'vpn-report.json':'openvpn-all.zip';a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);"
     new = "const blob=await r.blob();await vpnaiSaveBlob(blob,suffix==='report'?'vpn-report.json':'openvpn-all.zip');"
@@ -71,8 +70,9 @@ def prepare(source):
     files['app/static/app.js'] = js.encode()
     html = files['app/static/index.html'].decode().replace('Только на этом компьютере', 'Только на этом телефоне')
     html = html.replace('Вкладку можно закрыть. Окно запуска приложения должно оставаться открытым.', 'Во время установки держите VPNAI открытым. Не завершайте приложение принудительно.')
+    html = html.replace('class="web-preview"', 'class="mobile-preview"').replace('data-workspace-mode=', 'data-mobile-mode=')
     files['app/static/index.html'] = html.encode()
-    if 'mobile-preview' not in html:
+    if 'mobile-preview' in html:
         files['app/static/style.css'] += MOBILE_CSS.encode()
     checksums = {name: hashlib.sha256(data).hexdigest() for name, data in files.items() if not name.endswith('CHECKSUMS.json')}
     files['app/CHECKSUMS.json'] = json.dumps(checksums, indent=2).encode()

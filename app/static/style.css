@@ -351,3 +351,15 @@ button[data-admin-action="disconnect"]{background:#ffb4ba!important;color:#42232
 
 /* Local profile delivery preview. */
 .profile-delivery-choice{display:flex;align-items:center;justify-content:space-between;gap:16px}.profile-delivery-choice strong,.profile-delivery-choice small{display:block}.profile-delivery-choice small{margin-top:6px;color:var(--muted);font-size:13px;font-weight:400}.config-protocols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0}.config-protocols .active{background:var(--purple);color:#211a32;border-color:var(--purple)}.config-share-block{padding:20px;border:1px solid var(--line);border-radius:16px;margin:16px 0}.config-share-block h3{margin:0 0 10px}.config-share-block p{margin:0 0 18px;color:var(--muted);font-size:14px}.config-download-qr{display:flex;justify-content:center}.config-download-qr svg{width:220px;max-width:100%;height:auto;background:white;border-radius:12px}.config-file-name{display:block;text-align:center;color:var(--muted);font-size:13px;margin-top:12px}.config-link-actions{display:flex;gap:12px;justify-content:flex-end;margin-top:14px}.config-link-actions a{display:flex;align-items:center;justify-content:center;text-decoration:none;padding:12px 18px;border-radius:12px;font-size:14px;font-weight:600}.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}@media(max-width:500px){.config-share-block{padding:16px}.config-link-actions{flex-direction:column}.config-link-actions>*{width:100%}}
+
+
+/* EU SSH path controls (0.8.0) */
+.eu-ssh-card{margin-top:18px}
+.eu-ssh-lead{margin:0 0 14px;color:var(--muted);font-size:13px;line-height:1.5}
+.eu-ssh-seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px;border-radius:12px;background:#10111a;border:1px solid var(--line);margin-bottom:12px}
+.eu-ssh-option{min-height:40px;border:0;border-radius:9px;background:transparent;color:var(--muted);font-size:13px;font-weight:600;cursor:pointer}
+.eu-ssh-option.active{background:#c5a6ff22;color:var(--purple)}
+.eu-target-seg{margin-top:4px}
+.eu-path-pill{display:inline-flex;align-items:center;margin-top:6px;padding:3px 8px;border-radius:999px;background:#c5a6ff18;color:var(--purple);font-size:11px;font-weight:600}
+.eu-path-pill.muted{background:#ffffff0d;color:var(--muted)}
+.hint{margin:0;font-size:12px;line-height:1.45;color:var(--muted)}
